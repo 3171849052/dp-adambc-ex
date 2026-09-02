@@ -1,0 +1,50 @@
+seed: 0
+
+model:
+  name: FacebookAI/roberta-base
+  num_labels: 2
+
+data:
+  dataset_name: glue
+  dataset_config: qnli
+  train_split: train
+  eval_split: validation
+  max_length: 128
+  logical_batch_size: 1024
+  max_physical_batch_size: 8
+  eval_batch_size: 32
+  max_train_samples: null
+  max_eval_samples: null
+
+training:
+  epochs: 3
+  max_steps: null
+  learning_rate: 1.0e-4
+  optimizer: adam
+  weight_decay: 0.0
+  warmup_steps: 0
+  scheduler: none
+
+privacy:
+  epsilon: 3.0
+  delta: 1.0e-5
+  accountant: gdp
+  noise_type: iid_gaussian
+  max_grad_norm: 1.0
+  clipping: flat
+  grad_sample_mode: ghost
+  poisson_sampling: true
+  loss_reduction: mean
+  wrap_model: false
+
+runtime:
+  device: auto
+  num_workers: 0
+  pin_memory: true
+
+output:
+  output_dir: outputs/qnli_roberta_base
+  checkpoint_dir: outputs/qnli_roberta_base/checkpoints
+
+logging:
+  log_every_steps: 1

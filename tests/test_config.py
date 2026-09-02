@@ -43,6 +43,18 @@ def test_config_rejects_non_adam_or_non_gdp_choices():
         config.validate()
 
 
+def test_dpadambc_config_loads_with_positive_gamma_prime():
+    config = load_config(PROJECT_ROOT / "config/qnli_roberta_base_dpadambc.yaml")
+
+    assert config.algorithm == "dpadambc"
+    assert config.training.optimizer == "dpadambc"
+    assert config.training.gamma_prime == pytest.approx(1.0e-8)
+
+    config.training.gamma_prime = 0.0
+    with pytest.raises(ValueError, match="gamma_prime"):
+        config.validate()
+
+
 @pytest.mark.parametrize("field", ["max_length", "first_sent_limit", "other_sent_limit"])
 def test_config_rejects_nonpositive_prompt_lengths(field):
     raw = yaml.safe_load(

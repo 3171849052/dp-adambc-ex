@@ -141,7 +141,7 @@ class Config:
         if self.training.learning_rate <= 0:
             raise ValueError("learning_rate must be positive")
         if self.training.optimizer.lower() not in {"adam", "dpadambc"}:
-            raise ValueError("optimizer must be 'adam' or 'dpadambc'")
+            raise ValueError("Only Adam and DPAdamBC optimizers are supported")
         if self.training.gamma_prime <= 0:
             raise ValueError("gamma_prime must be positive")
         if self.training.weight_decay != 0:

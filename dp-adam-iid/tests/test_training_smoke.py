@@ -1,11 +1,18 @@
 from pathlib import Path
 from types import SimpleNamespace
+from datetime import datetime
 
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
 from dp_adam_iid.config import Config
+from dp_adam_iid.run_logging import (
+    MetricsCSVWriter,
+    create_run_directory,
+    tee_output,
+    write_run_metadata,
+)
 from dp_adam_iid.trainer import train_model
 
 
@@ -31,8 +38,9 @@ class TinyClassifier(nn.Module):
         return SimpleNamespace(logits=self.classifier(self.embedding(input_ids).mean(dim=1)))
 
 
-def test_training_smoke_saves_checkpoints(tmp_path: Path):
+def test_training_smoke_writes_metrics_without_checkpoints(tmp_path: Path):
     raw = {
+        "algorithm": "dpadam",
         "seed": 0,
         "model": {"name": "test", "num_labels": 2},
         "data": {
@@ -68,17 +76,46 @@ def test_training_smoke_saves_checkpoints(tmp_path: Path):
         },
         "runtime": {"device": "cpu", "num_workers": 0, "pin_memory": False},
         "output": {
-            "output_dir": str(tmp_path),
-            "checkpoint_dir": str(tmp_path / "checkpoints"),
+            "root": str(tmp_path),
         },
         "logging": {"log_every_steps": 1},
     }
     config = Config.from_dict(raw)
+    paths = create_run_directory(
+        config, now=datetime(2026, 9, 2, 18, 5, 0)
+    )
+    source_yaml = "algorithm: dpadam\n"
+    write_run_metadata(
+        paths, source_yaml=source_yaml, resolved_config=config.to_dict()
+    )
+    metrics_writer = MetricsCSVWriter(paths.metrics)
     loader = DataLoader(TinyDataset(), batch_size=4, shuffle=False)
     model = TinyClassifier()
-    result = train_model(config, model, loader, loader, torch.device("cpu"))
+    with tee_output(paths.train_log):
+        result = train_model(
+            config,
+            model,
+            loader,
+            loader,
+            torch.device("cpu"),
+            metrics_writer=metrics_writer,
+        )
+    write_run_metadata(
+        paths,
+        source_yaml=source_yaml,
+        resolved_config=config.to_dict(),
+        summary={"global_step": result.global_step},
+    )
 
     assert result.global_step == 1
-    assert result.best_checkpoint.exists()
-    assert result.final_checkpoint.exists()
     assert 0.0 <= result.final_metrics["accuracy"] <= 1.0
+    assert {
+        "config.yaml",
+        "resolved_config.yaml",
+        "metrics.csv",
+        "summary.json",
+        "train.log",
+    } == {path.name for path in paths.directory.iterdir()}
+    assert not list(paths.directory.glob("*.pt"))
+    assert "\"phase\": \"train\"" in paths.train_log.read_text()
+    assert "\"phase\": \"validation\"" in paths.train_log.read_text()

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import torch
@@ -14,21 +13,33 @@ from torch.utils.data import DataLoader
 
 from .config import Config
 from .privacy import PrivateTraining, make_private_training
+from .run_logging import MetricsCSVWriter
 
 
 @dataclass
 class TrainingResult:
-    best_checkpoint: Path
-    final_checkpoint: Path
     global_step: int
     best_accuracy: float
     final_metrics: dict[str, float]
     noise_multiplier: float
     epsilon: float
+    sample_rate: float
 
 
-def _log(record: dict[str, Any]) -> None:
+def _log(record: dict[str, Any], metrics_writer: MetricsCSVWriter | None = None) -> None:
     print(json.dumps(record, sort_keys=True), flush=True)
+    if metrics_writer is not None:
+        metrics_writer.append(
+            {
+                "phase": record["phase"],
+                "epoch": record["epoch"],
+                "step": record["step"],
+                "loss": record["loss"],
+                "accuracy": record["accuracy"],
+                "epsilon": record["epsilon"],
+                "noise_multiplier": record["noise_multiplier"],
+            }
+        )
 
 
 def _extract_logits(outputs):
@@ -73,47 +84,13 @@ def evaluate_model(
     }
 
 
-def _base_model(model: nn.Module) -> nn.Module:
-    """Get the model whose state dict is loadable without Opacus wrappers."""
-
-    return getattr(model, "_module", model)
-
-
-def _save_checkpoint(
-    path: Path,
-    model: nn.Module,
-    optimizer: Any,
-    config: Config,
-    epoch: int,
-    global_step: int,
-    metrics: dict[str, float],
-    epsilon: float,
-    noise_multiplier: float,
-    best_accuracy: float,
-) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(
-        {
-            "model_state_dict": _base_model(model).state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
-            "epoch": epoch,
-            "step": global_step,
-            "metrics": metrics,
-            "epsilon": epsilon,
-            "noise_multiplier": noise_multiplier,
-            "best_accuracy": best_accuracy,
-            "config": config.to_dict(),
-        },
-        path,
-    )
-
-
 def train_model(
     config: Config,
     model: nn.Module,
     train_loader: DataLoader,
     eval_loader: DataLoader,
     device: torch.device,
+    metrics_writer: MetricsCSVWriter | None = None,
 ) -> TrainingResult:
     """Train a model using one private Adam update per logical batch."""
 
@@ -127,13 +104,17 @@ def train_model(
     private_optimizer = private.optimizer
     private_model.train()
 
-    checkpoint_dir = Path(config.output.checkpoint_dir)
-    best_path = checkpoint_dir / "best.pt"
-    final_path = checkpoint_dir / "final.pt"
     best_accuracy = float("-inf")
     global_step = 0
     final_metrics: dict[str, float] = {"loss": float("nan"), "accuracy": float("nan")}
     stop_training = False
+    sample_rate = float(
+        getattr(
+            private.data_loader,
+            "sample_rate",
+            config.data.logical_batch_size / max(len(train_loader.dataset), 1),
+        )
+    )
 
     try:
         for epoch in range(1, config.training.epochs + 1):
@@ -184,7 +165,8 @@ def train_model(
                                     "epsilon": epsilon,
                                     "noise_multiplier": private.noise_multiplier,
                                     "phase": "train",
-                                }
+                                },
+                                metrics_writer,
                             )
                         running_loss = 0.0
                         running_examples = 0
@@ -206,49 +188,24 @@ def train_model(
                     "accuracy": final_metrics["accuracy"],
                     "epsilon": epsilon,
                     "noise_multiplier": private.noise_multiplier,
-                    "phase": "eval",
-                }
+                    "phase": "validation",
+                },
+                metrics_writer,
             )
-            if final_metrics["accuracy"] > best_accuracy:
-                best_accuracy = final_metrics["accuracy"]
-                _save_checkpoint(
-                    best_path,
-                    private_model,
-                    private_optimizer,
-                    config,
-                    epoch,
-                    global_step,
-                    final_metrics,
-                    epsilon,
-                    private.noise_multiplier,
-                    best_accuracy,
-                )
+            best_accuracy = max(best_accuracy, final_metrics["accuracy"])
             if stop_training:
                 break
 
         final_epsilon = private.privacy_engine.get_epsilon(config.privacy.delta)
-        _save_checkpoint(
-            final_path,
-            private_model,
-            private_optimizer,
-            config,
-            epoch,
-            global_step,
-            final_metrics,
-            final_epsilon,
-            private.noise_multiplier,
-            best_accuracy,
-        )
     finally:
         if private.hooks is not None:
             private.hooks.cleanup()
 
     return TrainingResult(
-        best_checkpoint=best_path,
-        final_checkpoint=final_path,
         global_step=global_step,
         best_accuracy=best_accuracy,
         final_metrics=final_metrics,
         noise_multiplier=private.noise_multiplier,
         epsilon=final_epsilon,
+        sample_rate=sample_rate,
     )

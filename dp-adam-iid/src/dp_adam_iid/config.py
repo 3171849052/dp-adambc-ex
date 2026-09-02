@@ -64,8 +64,7 @@ class RuntimeConfig:
 
 @dataclass
 class OutputConfig:
-    output_dir: str = "outputs/qnli_roberta_base"
-    checkpoint_dir: str = "outputs/qnli_roberta_base/checkpoints"
+    root: str = "outputs"
 
 
 @dataclass
@@ -75,6 +74,7 @@ class LoggingConfig:
 
 @dataclass
 class Config:
+    algorithm: str
     seed: int
     model: ModelConfig
     data: DataConfig
@@ -86,7 +86,11 @@ class Config:
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "Config":
+        algorithm = raw.get("algorithm")
+        if not isinstance(algorithm, str) or not algorithm.strip():
+            raise ValueError("algorithm is required and must be a non-empty string")
         config = cls(
+            algorithm=algorithm,
             seed=int(raw.get("seed", 0)),
             model=ModelConfig(**raw.get("model", {})),
             data=DataConfig(**raw.get("data", {})),
@@ -155,6 +159,8 @@ class Config:
 
         if self.runtime.num_workers < 0:
             raise ValueError("num_workers must be non-negative")
+        if not isinstance(self.output.root, str) or not self.output.root.strip():
+            raise ValueError("output.root must be a non-empty path")
         if self.logging.log_every_steps <= 0:
             raise ValueError("log_every_steps must be positive")
 

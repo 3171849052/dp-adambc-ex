@@ -1,3 +1,4 @@
+algorithm: dpadam
 seed: 0
 
 model:
@@ -43,8 +44,7 @@ runtime:
   pin_memory: true
 
 output:
-  output_dir: outputs/qnli_roberta_base_smoke
-  checkpoint_dir: outputs/qnli_roberta_base_smoke/checkpoints
+  root: outputs
 
 logging:
   log_every_steps: 1

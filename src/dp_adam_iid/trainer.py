@@ -10,6 +10,7 @@ import torch
 from opacus.utils.batch_memory_manager import BatchMemoryManager
 from torch import nn
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from .config import Config
 from .privacy import PrivateTraining, make_private_training
@@ -54,6 +55,21 @@ def _move_batch(batch: dict[str, torch.Tensor], device: torch.device):
     return {key: value.to(device) for key, value in batch.items()}
 
 
+def _progress_bar(iterable=None, *, total=None, desc: str, unit: str):
+    """Use concise, rate-limited bars that remain readable through ``tee``."""
+
+    return tqdm(
+        iterable,
+        total=total,
+        desc=desc,
+        unit=unit,
+        disable=False,
+        dynamic_ncols=True,
+        leave=False,
+        mininterval=1.0,
+    )
+
+
 @torch.no_grad()
 def evaluate_model(
     model: nn.Module,
@@ -67,15 +83,18 @@ def evaluate_model(
     total_loss = 0.0
     total_correct = 0
     total_examples = 0
-    for batch in data_loader:
-        if not batch["labels"].numel():
-            continue
-        batch = _move_batch(batch, device)
-        labels = batch.pop("labels")
-        logits = _extract_logits(model(**batch))
-        total_loss += float(criterion(logits, labels).item())
-        total_correct += int((logits.argmax(dim=-1) == labels).sum().item())
-        total_examples += int(labels.shape[0])
+    with _progress_bar(
+        data_loader, total=len(data_loader), desc="Evaluating", unit="batch"
+    ) as progress:
+        for batch in progress:
+            if not batch["labels"].numel():
+                continue
+            batch = _move_batch(batch, device)
+            labels = batch.pop("labels")
+            logits = _extract_logits(model(**batch))
+            total_loss += float(criterion(logits, labels).item())
+            total_correct += int((logits.argmax(dim=-1) == labels).sum().item())
+            total_examples += int(labels.shape[0])
     if total_examples == 0:
         raise RuntimeError("Evaluation loader produced no examples")
     return {
@@ -121,62 +140,76 @@ def train_model(
             private_model.train()
             running_loss = 0.0
             running_examples = 0
-            with BatchMemoryManager(
-                data_loader=private.data_loader,
-                max_physical_batch_size=config.data.max_physical_batch_size,
-                optimizer=private_optimizer,
-            ) as memory_safe_loader:
-                for batch in memory_safe_loader:
-                    batch_size = int(batch["labels"].shape[0])
-                    if batch_size == 0:
-                        # Poisson sampling can produce an empty batch. Consume
-                        # the corresponding optimizer signal without updating.
+            with _progress_bar(
+                total=len(private.data_loader),
+                desc=f"Epoch {epoch}/{config.training.epochs}",
+                unit="logical step",
+            ) as progress:
+                with BatchMemoryManager(
+                    data_loader=private.data_loader,
+                    max_physical_batch_size=config.data.max_physical_batch_size,
+                    optimizer=private_optimizer,
+                ) as memory_safe_loader:
+                    for batch in memory_safe_loader:
+                        batch_size = int(batch["labels"].shape[0])
+                        if batch_size == 0:
+                            # Poisson sampling can produce an empty batch. Consume
+                            # the corresponding optimizer signal without updating.
+                            private_optimizer.zero_grad()
+                            private_optimizer.step()
+                            private_optimizer.zero_grad()
+                            continue
+
+                        batch = _move_batch(batch, device)
+                        labels = batch.pop("labels")
                         private_optimizer.zero_grad()
+                        outputs = private_model(**batch)
+                        loss = private.criterion(_extract_logits(outputs), labels)
+                        loss_value = float(loss.item())
+                        loss.backward()
                         private_optimizer.step()
                         private_optimizer.zero_grad()
-                        continue
 
-                    batch = _move_batch(batch, device)
-                    labels = batch.pop("labels")
-                    private_optimizer.zero_grad()
-                    outputs = private_model(**batch)
-                    loss = private.criterion(_extract_logits(outputs), labels)
-                    loss_value = float(loss.item())
-                    loss.backward()
-                    private_optimizer.step()
-                    private_optimizer.zero_grad()
+                        running_loss += loss_value * batch_size
+                        running_examples += batch_size
 
-                    running_loss += loss_value * batch_size
-                    running_examples += batch_size
-
-                    # BatchMemoryManager marks all non-final physical batches
-                    # as skipped. This field is part of Opacus' DPOptimizer
-                    # state and is the direct indicator of a real optimizer step.
-                    if not bool(getattr(private_optimizer, "_is_last_step_skipped", False)):
-                        global_step += 1
-                        if global_step % config.logging.log_every_steps == 0:
-                            epsilon = private.privacy_engine.get_epsilon(config.privacy.delta)
-                            _log(
-                                {
-                                    "epoch": epoch,
-                                    "step": global_step,
-                                    "loss": running_loss / max(running_examples, 1),
-                                    "accuracy": None,
-                                    "epsilon": epsilon,
-                                    "noise_multiplier": private.noise_multiplier,
-                                    "phase": "train",
-                                },
-                                metrics_writer,
+                        # BatchMemoryManager marks all non-final physical batches
+                        # as skipped. This field is part of Opacus' DPOptimizer
+                        # state and is the direct indicator of a real optimizer step.
+                        if not bool(getattr(private_optimizer, "_is_last_step_skipped", False)):
+                            global_step += 1
+                            epsilon = private.privacy_engine.get_epsilon(
+                                config.privacy.delta
                             )
-                        running_loss = 0.0
-                        running_examples = 0
+                            logical_loss = running_loss / max(running_examples, 1)
+                            progress.update(1)
+                            progress.set_postfix(
+                                loss=f"{logical_loss:.2f}",
+                                epsilon=f"{epsilon:.2f}",
+                                noise_multiplier=f"{private.noise_multiplier:.3g}",
+                            )
+                            if global_step % config.logging.log_every_steps == 0:
+                                _log(
+                                    {
+                                        "epoch": epoch,
+                                        "step": global_step,
+                                        "loss": logical_loss,
+                                        "accuracy": None,
+                                        "epsilon": epsilon,
+                                        "noise_multiplier": private.noise_multiplier,
+                                        "phase": "train",
+                                    },
+                                    metrics_writer,
+                                )
+                            running_loss = 0.0
+                            running_examples = 0
 
-                        if (
-                            config.training.max_steps is not None
-                            and global_step >= config.training.max_steps
-                        ):
-                            stop_training = True
-                            break
+                            if (
+                                config.training.max_steps is not None
+                                and global_step >= config.training.max_steps
+                            ):
+                                stop_training = True
+                                break
 
             final_metrics = evaluate_model(private_model, eval_loader, device)
             epsilon = private.privacy_engine.get_epsilon(config.privacy.delta)

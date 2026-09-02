@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import nullcontext
 import json
 import os
 from pathlib import Path
@@ -24,6 +25,8 @@ from dp_adam_iid.run_logging import (  # noqa: E402
     MetricsCSVWriter,
     RunPaths,
     create_run_directory,
+    format_tmux_session_name,
+    run_paths_from_directory,
     tee_output,
     write_run_metadata,
 )
@@ -91,7 +94,9 @@ def _summary(
     }
 
 
-def run_experiment(config_file: str | Path) -> int:
+def prepare_run(config_file: str | Path) -> RunPaths:
+    """Create a run directory and its initial metadata without training."""
+
     config_path = Path(config_file)
     source_yaml = config_path.read_text(encoding="utf-8")
     config = load_config(config_path)
@@ -102,9 +107,31 @@ def run_experiment(config_file: str | Path) -> int:
         source_yaml=source_yaml,
         resolved_config=_resolved_config(config, paths, device),
     )
+    MetricsCSVWriter(paths.metrics)
+    return paths
+
+
+def run_experiment(config_file: str | Path, *, run_dir: str | Path | None = None) -> int:
+    config_path = Path(config_file)
+    source_yaml = config_path.read_text(encoding="utf-8")
+    config = load_config(config_path)
+    device = resolve_device(config.runtime.device)
+    paths = (
+        run_paths_from_directory(run_dir)
+        if run_dir is not None
+        else create_run_directory(config, root=_output_root(config))
+    )
+    write_run_metadata(
+        paths,
+        source_yaml=source_yaml,
+        resolved_config=_resolved_config(config, paths, device),
+    )
     metrics_writer = MetricsCSVWriter(paths.metrics)
 
-    with tee_output(paths.train_log):
+    # The tmux launcher owns teeing for prepared runs. Keep the old direct
+    # invocation behavior for callers that let this function allocate a run.
+    output_context = nullcontext() if run_dir is not None else tee_output(paths.train_log)
+    with output_context:
         try:
             print(f"run_directory={paths.directory.resolve()}", flush=True)
             set_seed(config.seed)
@@ -174,10 +201,37 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("config", nargs="?", type=Path)
     parser.add_argument("--config", dest="config_option", type=Path)
+    parser.add_argument(
+        "--prepare-run",
+        action="store_true",
+        help="create and print a run directory without starting training",
+    )
+    parser.add_argument(
+        "--run-dir",
+        type=Path,
+        help="run an already-prepared directory",
+    )
+    parser.add_argument(
+        "--tmux-session-name",
+        type=Path,
+        help="print the tmux-safe session name for a run directory",
+    )
     args = parser.parse_args()
     if args.config is not None and args.config_option is not None:
         parser.error("provide the config path either positionally or with --config")
-    return run_experiment(_config_path(args.config_option or args.config))
+    if args.prepare_run and args.run_dir is not None:
+        parser.error("--prepare-run and --run-dir are mutually exclusive")
+    if args.tmux_session_name is not None:
+        if args.prepare_run or args.run_dir is not None:
+            parser.error("--tmux-session-name cannot be combined with a run mode")
+        print(format_tmux_session_name(args.tmux_session_name))
+        return 0
+
+    config_path = _config_path(args.config_option or args.config)
+    if args.prepare_run:
+        print(prepare_run(config_path).directory.resolve())
+        return 0
+    return run_experiment(config_path, run_dir=args.run_dir)
 
 
 if __name__ == "__main__":

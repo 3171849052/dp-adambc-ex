@@ -88,6 +88,25 @@ def _run_paths(directory: Path) -> RunPaths:
     )
 
 
+def run_paths_from_directory(directory: str | Path) -> RunPaths:
+    """Return the file paths for a run directory created by this project."""
+
+    root = Path(directory).resolve()
+    if not root.is_dir() or not (root / "config.yaml").is_file():
+        raise ValueError("run directory must have been created by the runner")
+    return _run_paths(root)
+
+
+def format_tmux_session_name(directory: str | Path) -> str:
+    """Build a tmux-safe, deterministic session name from a run directory."""
+
+    run_name = Path(directory).name
+    if not run_name:
+        raise ValueError("run directory must have a name")
+    session = f"dp_adam_iid_{run_name}"
+    return re.sub(r"[^A-Za-z0-9_-]", "_", session)
+
+
 def create_run_directory(
     config: Config,
     *,
@@ -197,6 +216,8 @@ __all__ = [
     "RunPaths",
     "create_run_directory",
     "format_run_name",
+    "format_tmux_session_name",
+    "run_paths_from_directory",
     "tee_output",
     "write_run_metadata",
 ]

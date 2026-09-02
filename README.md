@@ -9,7 +9,7 @@
 
 ## 环境与运行
 
-在仓库根目录使用现有的 `curve` conda 环境启动：
+在仓库根目录使用现有的 `curve` conda 环境、通过 tmux 后台启动：
 
 ```bash
 ./run.sh
@@ -19,10 +19,20 @@
 
 ```bash
 ./run.sh config/qnli_roberta_base.yaml
+./run.sh --config config/qnli_roberta_base.yaml
 ```
 
-`run.sh` 只负责激活环境并启动 Python；配置解析、运行目录创建、训练和结果
-写入都由 Python 完成。
+启动脚本先调用 Python 的通用 run-management 逻辑创建唯一的 run directory，
+再创建同名唯一 tmux session。训练在 tmux 内激活 `curve` 环境，以 `python -u`
+运行，并通过 `tee -a` 将 stdout/stderr 写入该 run 的 `train.log`。启动后会打印：
+
+```text
+attach: tmux attach -t <session>
+tail: tail -f <run_dir>/train.log
+kill: tmux kill-session -t <session>
+```
+
+如果 tmux session 已存在，启动会明确报错且不会覆盖已有 session。
 
 当前环境已经提供项目依赖。若需要将项目安装为 editable package，可在不解析
 依赖的情况下执行：
@@ -55,9 +65,11 @@ Gaussian noise；再把 private gradient 交给 Adam。因此每个 logical step
 训练使用 Poisson sampling，并通过
 `make_private_with_epsilon()` 根据 `epsilon`、`delta`、`epochs` 和采样率自动
 求 `noise_multiplier`。默认配置为：`epsilon=3.0`、`delta=1e-5`、
-`max_grad_norm=1.0`、`epochs=3`、`max_length=128`。训练过程中打印 epoch、step、
-loss、accuracy、当前 epsilon 和 noise multiplier。stdout 和 stderr 会同时显示在
-终端并写入当前运行目录的 `train.log`。
+`max_grad_norm=1.0`、`epochs=3`、`max_length=128`。训练过程中使用 tqdm 显示
+epoch 内的 logical DP optimizer steps，以及 loss、当前 epsilon 和 noise
+multiplier；验证阶段按普通 eval batch 显示 `Evaluating` 进度。进度条只在真正的
+logical optimizer update 后更新，不把 `BatchMemoryManager` 的 physical batches
+当作训练 step。结构化指标仍写入 `metrics.csv`，最终结果写入 `summary.json`。
 
 ## 输出目录与文件
 
@@ -85,6 +97,8 @@ outputs/20260902-180500_dpadam_eps3_d1e-5_ep3_lb1024_lr1e-4_C1_s0/
 - `metrics.csv`：训练和验证指标；
 - `summary.json`：最终结果和关键参数；
 - `train.log`：完整终端日志。
+
+run directory 不保存 checkpoint 或其他模型权重。
 
 当前 `curve` 中的 Opacus 1.6.0 在 GDP 校准二分搜索的一个中间 sigma 上存在
 数值 bracket 边界问题；项目只临时扩大 Opacus 已有 GDP 根求解区间，公式、

@@ -119,3 +119,5 @@ def test_training_smoke_writes_metrics_without_checkpoints(tmp_path: Path):
     assert not list(paths.directory.glob("*.pt"))
     assert "\"phase\": \"train\"" in paths.train_log.read_text()
     assert "\"phase\": \"validation\"" in paths.train_log.read_text()
+    assert "Epoch 1/1" in paths.train_log.read_text()
+    assert "Evaluating" in paths.train_log.read_text()

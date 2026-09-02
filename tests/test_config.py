@@ -15,7 +15,7 @@ def test_default_config_contains_requested_experiment_defaults():
     assert config.algorithm == "dpadam"
     assert config.model.name == "FacebookAI/roberta-base"
     assert config.data.logical_batch_size == 512
-    assert config.data.max_physical_batch_size == 16
+    assert config.data.max_physical_batch_size == 64
     assert config.data.max_length == 128
     assert config.training.epochs == 5
     assert config.training.learning_rate == 1.0e-4

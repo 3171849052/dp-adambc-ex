@@ -1,8 +1,9 @@
 # dp-adam-iid
 
 一个简洁、可复现的 PyTorch + Opacus 差分隐私 QNLI 实验。模型是
-`FacebookAI/roberta-base`，数据使用 GLUE/QNLI，优化器是纯
-`torch.optim.Adam`。
+`FacebookAI/roberta-base` 的 prompt-based text-infilling 模型，使用预训练 MLM
+head 在 `<mask>` 位置抽取 `yes` / `no` logits；数据使用 GLUE/QNLI，优化器是纯
+`torch.optim.Adam`，并对完整模型进行 DP fine-tuning。
 
 本项目不包含 JAX、`jax_privacy`、BandInvMF、Toeplitz、相关噪声或相关实现，
 也不修改 `curve` 环境中的第三方包。
@@ -78,10 +79,10 @@ Gaussian noise；再把 private gradient 交给 Adam。因此每个 logical step
 `make_private_with_epsilon()` 根据 `epsilon`、`delta`、`epochs` 和采样率自动
 求 `noise_multiplier`。默认配置为：`epsilon=3.0`、`delta=1e-5`、
 `max_grad_norm=1.0`、`epochs=3`、`max_length=128`。训练过程中使用 tqdm 显示
-epoch 内的 logical DP optimizer steps，以及 loss、当前 epsilon 和 noise
-multiplier；验证阶段按普通 eval batch 显示 `Evaluating` 进度。进度条只在真正的
-logical optimizer update 后更新，不把 `BatchMemoryManager` 的 physical batches
-当作训练 step。结构化指标仍写入 `metrics.csv`，最终结果写入 `summary.json`。
+epoch 内的 logical DP optimizer steps 和 running loss；验证阶段按普通 eval batch
+显示 `Evaluating` 进度。进度条只在真正的 logical optimizer update 后更新，不把
+`BatchMemoryManager` 的 physical batches 当作训练 step。每个 epoch 结束后才评估、
+查询累计 epsilon，并向 `metrics.csv` 写一行；最终结果写入 `summary.json`。
 
 ## 输出目录与文件
 
@@ -106,7 +107,7 @@ outputs/20260902-180500_dpadam_eps3_d1e-5_ep3_lb1024_lr1e-4_C1_s0/
 - `config.yaml`：原始 YAML 配置快照；
 - `resolved_config.yaml`：完整配置、实际 device、数据集大小、sample rate、
   noise multiplier 等运行时派生参数；
-- `metrics.csv`：训练和验证指标；
+- `metrics.csv`：每个 epoch 一行的训练、验证和隐私指标；
 - `summary.json`：最终结果和关键参数；
 - `train.log`：完整终端日志。
 

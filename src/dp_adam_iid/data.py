@@ -4,11 +4,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from datasets import DatasetDict, load_dataset
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, DataCollatorWithPadding, PreTrainedTokenizerBase
 
 from .config import Config
+
+
+QNLI_VERBALIZER = {
+    0: " yes",
+    1: " no",
+}
 
 
 @dataclass
@@ -26,10 +31,75 @@ def _limit_dataset(dataset, limit: int | None):
     return dataset.select(range(min(limit, len(dataset))))
 
 
+def qnli_verbalizer_token_ids(tokenizer: PreTrainedTokenizerBase) -> tuple[int, int]:
+    """Return BEDB's QNLI label-token ids in Hugging Face label order."""
+
+    token_ids: list[int] = []
+    for label in (0, 1):
+        label_word = QNLI_VERBALIZER[label]
+        encoded = tokenizer.encode(label_word, add_special_tokens=False)
+        if len(encoded) != 1:
+            raise ValueError(
+                f"QNLI verbalizer {label_word!r} must encode to exactly one token; "
+                f"got {encoded}"
+            )
+        token_ids.append(int(encoded[0]))
+    return token_ids[0], token_ids[1]
+
+
+def build_qnli_prompt(question: str, sentence: str, mask_token: str) -> str:
+    """Construct the QNLI-specific BEDB text-infilling prompt."""
+
+    question = question.strip()
+    if question.endswith("?"):
+        question = question[:-1].rstrip()
+    return f"{question}? {mask_token}, {sentence.strip()}"
+
+
+def tokenize_qnli_batch(
+    tokenizer: PreTrainedTokenizerBase,
+    questions: list[str],
+    sentences: list[str],
+    *,
+    max_length: int,
+):
+    """Tokenize QNLI prompts and record the sole mask position."""
+
+    if tokenizer.mask_token is None or tokenizer.mask_token_id is None:
+        raise ValueError("The QNLI prompt model requires a tokenizer with a mask token")
+    prompts = [
+        build_qnli_prompt(question, sentence, tokenizer.mask_token)
+        for question, sentence in zip(questions, sentences)
+    ]
+    encoded = tokenizer(
+        prompts,
+        truncation=True,
+        max_length=max_length,
+    )
+    mask_positions = []
+    for input_ids in encoded["input_ids"]:
+        positions = [
+            index
+            for index, token_id in enumerate(input_ids)
+            if token_id == tokenizer.mask_token_id
+        ]
+        if len(positions) != 1:
+            raise ValueError(
+                "Every tokenized QNLI prompt must contain exactly one <mask> token; "
+                f"got {len(positions)}"
+            )
+        mask_positions.append(positions[0])
+    encoded["mask_pos"] = mask_positions
+    return encoded
+
+
 def load_qnli(config: Config) -> QNLIData:
     """Download/cache GLUE QNLI and return tokenized PyTorch data loaders."""
 
+    from datasets import DatasetDict, load_dataset
+
     tokenizer = AutoTokenizer.from_pretrained(config.model.name)
+    qnli_verbalizer_token_ids(tokenizer)
     # datasets>=4 no longer resolves the legacy unnamespaced ``glue`` dataset
     # script. ``nyu-mll/glue`` is the current Hub repository containing the same
     # GLUE subsets; the public experiment configuration intentionally remains
@@ -38,10 +108,10 @@ def load_qnli(config: Config) -> QNLIData:
     raw: DatasetDict = load_dataset(dataset_id, config.data.dataset_config)
 
     def tokenize_batch(batch):
-        return tokenizer(
+        return tokenize_qnli_batch(
+            tokenizer,
             batch["question"],
             batch["sentence"],
-            truncation=True,
             max_length=config.data.max_length,
         )
 

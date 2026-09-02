@@ -152,7 +152,7 @@ def run_experiment(config_file: str | Path, *, run_dir: str | Path | None = None
             print(f"run_directory={paths.directory.resolve()}", flush=True)
             set_seed(config.seed)
             data = load_qnli(config)
-            model = build_model(config)
+            model = build_model(config, data.tokenizer)
             print(
                 f"device={device} train_examples={data.train_size} "
                 f"eval_examples={data.eval_size} "

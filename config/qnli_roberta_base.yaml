@@ -12,7 +12,7 @@ data:
   eval_split: validation
   max_length: 128
   logical_batch_size: 512
-  max_physical_batch_size: 16
+  max_physical_batch_size: 64
   eval_batch_size: 32
   max_train_samples: null
   max_eval_samples: null

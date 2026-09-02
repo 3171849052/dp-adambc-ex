@@ -20,11 +20,11 @@ from .config import Config
 
 
 METRICS_FIELDS = (
-    "phase",
     "epoch",
-    "step",
-    "loss",
-    "accuracy",
+    "global_step",
+    "train_loss",
+    "val_loss",
+    "val_accuracy",
     "epsilon",
     "noise_multiplier",
 )
@@ -154,7 +154,7 @@ def write_run_metadata(
 
 
 class MetricsCSVWriter:
-    """Append flushed training and validation metric records."""
+    """Append one flushed aggregate metric record per completed epoch."""
 
     def __init__(self, path: str | Path):
         self.path = Path(path)

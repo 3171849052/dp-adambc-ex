@@ -1,12 +1,14 @@
+import csv
 from pathlib import Path
-from types import SimpleNamespace
 from datetime import datetime
 
 import torch
-from torch import nn
 from torch.utils.data import DataLoader, Dataset
+from transformers import RobertaConfig, RobertaForMaskedLM
 
 from dp_adam_iid.config import Config
+from dp_adam_iid.model import RobertaPromptForQNLI
+from opacus import PrivacyEngine
 from dp_adam_iid.run_logging import (
     MetricsCSVWriter,
     create_run_directory,
@@ -18,27 +20,45 @@ from dp_adam_iid.trainer import train_model
 
 class TinyDataset(Dataset):
     def __init__(self, size=8):
-        self.input_ids = torch.arange(1, size * 3 + 1).view(size, 3) % 15
+        self.input_ids = torch.tensor(
+            [[0, 7 + index, 4, 15 + index, 2] for index in range(size)]
+        )
+        self.attention_mask = torch.ones_like(self.input_ids)
+        self.mask_pos = torch.full((size,), 2)
         self.labels = torch.arange(size) % 2
 
     def __len__(self):
         return len(self.labels)
 
     def __getitem__(self, index):
-        return {"input_ids": self.input_ids[index], "labels": self.labels[index]}
+        return {
+            "input_ids": self.input_ids[index],
+            "attention_mask": self.attention_mask[index],
+            "mask_pos": self.mask_pos[index],
+            "labels": self.labels[index],
+        }
 
 
-class TinyClassifier(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.embedding = nn.Embedding(16, 4)
-        self.classifier = nn.Linear(4, 2)
+def _tiny_prompt_model():
+    masked_lm = RobertaForMaskedLM(
+        RobertaConfig(
+            vocab_size=32,
+            hidden_size=16,
+            num_hidden_layers=1,
+            num_attention_heads=2,
+            intermediate_size=32,
+            max_position_embeddings=32,
+            pad_token_id=1,
+            bos_token_id=0,
+            eos_token_id=2,
+        )
+    )
+    return RobertaPromptForQNLI(masked_lm, yes_token_id=5, no_token_id=6)
 
-    def forward(self, input_ids):
-        return SimpleNamespace(logits=self.classifier(self.embedding(input_ids).mean(dim=1)))
 
-
-def test_training_smoke_writes_metrics_without_checkpoints(tmp_path: Path):
+def test_prompt_dp_smoke_writes_one_epoch_row_without_step_metrics(
+    tmp_path: Path, monkeypatch
+):
     raw = {
         "algorithm": "dpadam",
         "seed": 0,
@@ -55,7 +75,7 @@ def test_training_smoke_writes_metrics_without_checkpoints(tmp_path: Path):
         },
         "training": {
             "epochs": 1,
-            "max_steps": 1,
+            "max_steps": None,
             "learning_rate": 1.0e-4,
             "optimizer": "adam",
             "weight_decay": 0.0,
@@ -90,7 +110,16 @@ def test_training_smoke_writes_metrics_without_checkpoints(tmp_path: Path):
     )
     metrics_writer = MetricsCSVWriter(paths.metrics)
     loader = DataLoader(TinyDataset(), batch_size=4, shuffle=False)
-    model = TinyClassifier()
+    model = _tiny_prompt_model()
+    epsilon_calls = 0
+    original_get_epsilon = PrivacyEngine.get_epsilon
+
+    def counted_get_epsilon(self, delta):
+        nonlocal epsilon_calls
+        epsilon_calls += 1
+        return original_get_epsilon(self, delta)
+
+    monkeypatch.setattr(PrivacyEngine, "get_epsilon", counted_get_epsilon)
     with tee_output(paths.train_log):
         result = train_model(
             config,
@@ -107,7 +136,8 @@ def test_training_smoke_writes_metrics_without_checkpoints(tmp_path: Path):
         summary={"global_step": result.global_step},
     )
 
-    assert result.global_step == 1
+    assert result.global_step == len(loader)
+    assert epsilon_calls == 1
     assert 0.0 <= result.final_metrics["accuracy"] <= 1.0
     assert {
         "config.yaml",
@@ -117,7 +147,22 @@ def test_training_smoke_writes_metrics_without_checkpoints(tmp_path: Path):
         "train.log",
     } == {path.name for path in paths.directory.iterdir()}
     assert not list(paths.directory.glob("*.pt"))
-    assert "\"phase\": \"train\"" in paths.train_log.read_text()
-    assert "\"phase\": \"validation\"" in paths.train_log.read_text()
-    assert "Epoch 1/1" in paths.train_log.read_text()
-    assert "Evaluating" in paths.train_log.read_text()
+    log = paths.train_log.read_text()
+    assert "\"phase\"" not in log
+    assert log.count("\"global_step\"") == 1
+    assert "Epoch 1/1" in log
+    assert "Evaluating" in log
+
+    with paths.metrics.open(newline="", encoding="utf-8") as stream:
+        rows = list(csv.DictReader(stream))
+    assert len(rows) == 1
+    assert list(rows[0]) == [
+        "epoch",
+        "global_step",
+        "train_loss",
+        "val_loss",
+        "val_accuracy",
+        "epsilon",
+        "noise_multiplier",
+    ]
+    assert int(rows[0]["global_step"]) == result.global_step

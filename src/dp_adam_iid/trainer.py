@@ -27,20 +27,12 @@ class TrainingResult:
     sample_rate: float
 
 
-def _log(record: dict[str, Any], metrics_writer: MetricsCSVWriter | None = None) -> None:
+def _log_epoch(
+    record: dict[str, Any], metrics_writer: MetricsCSVWriter | None = None
+) -> None:
     print(json.dumps(record, sort_keys=True), flush=True)
     if metrics_writer is not None:
-        metrics_writer.append(
-            {
-                "phase": record["phase"],
-                "epoch": record["epoch"],
-                "step": record["step"],
-                "loss": record["loss"],
-                "accuracy": record["accuracy"],
-                "epsilon": record["epsilon"],
-                "noise_multiplier": record["noise_multiplier"],
-            }
-        )
+        metrics_writer.append(record)
 
 
 def _extract_logits(outputs):
@@ -126,6 +118,7 @@ def train_model(
     best_accuracy = float("-inf")
     global_step = 0
     final_metrics: dict[str, float] = {"loss": float("nan"), "accuracy": float("nan")}
+    final_epsilon = float("nan")
     stop_training = False
     sample_rate = float(
         getattr(
@@ -138,8 +131,10 @@ def train_model(
     try:
         for epoch in range(1, config.training.epochs + 1):
             private_model.train()
-            running_loss = 0.0
-            running_examples = 0
+            logical_loss_sum = 0.0
+            logical_examples = 0
+            epoch_loss_sum = 0.0
+            epoch_examples = 0
             with _progress_bar(
                 total=len(private.data_loader),
                 desc=f"Epoch {epoch}/{config.training.epochs}",
@@ -170,39 +165,21 @@ def train_model(
                         private_optimizer.step()
                         private_optimizer.zero_grad()
 
-                        running_loss += loss_value * batch_size
-                        running_examples += batch_size
+                        logical_loss_sum += loss_value * batch_size
+                        logical_examples += batch_size
+                        epoch_loss_sum += loss_value * batch_size
+                        epoch_examples += batch_size
 
                         # BatchMemoryManager marks all non-final physical batches
                         # as skipped. This field is part of Opacus' DPOptimizer
                         # state and is the direct indicator of a real optimizer step.
                         if not bool(getattr(private_optimizer, "_is_last_step_skipped", False)):
                             global_step += 1
-                            epsilon = private.privacy_engine.get_epsilon(
-                                config.privacy.delta
-                            )
-                            logical_loss = running_loss / max(running_examples, 1)
+                            logical_loss = logical_loss_sum / max(logical_examples, 1)
                             progress.update(1)
-                            progress.set_postfix(
-                                loss=f"{logical_loss:.2f}",
-                                epsilon=f"{epsilon:.2f}",
-                                noise_multiplier=f"{private.noise_multiplier:.3g}",
-                            )
-                            if global_step % config.logging.log_every_steps == 0:
-                                _log(
-                                    {
-                                        "epoch": epoch,
-                                        "step": global_step,
-                                        "loss": logical_loss,
-                                        "accuracy": None,
-                                        "epsilon": epsilon,
-                                        "noise_multiplier": private.noise_multiplier,
-                                        "phase": "train",
-                                    },
-                                    metrics_writer,
-                                )
-                            running_loss = 0.0
-                            running_examples = 0
+                            progress.set_postfix(loss=f"{logical_loss:.2f}")
+                            logical_loss_sum = 0.0
+                            logical_examples = 0
 
                             if (
                                 config.training.max_steps is not None
@@ -211,17 +188,19 @@ def train_model(
                                 stop_training = True
                                 break
 
+            epoch_train_loss = epoch_loss_sum / max(epoch_examples, 1)
             final_metrics = evaluate_model(private_model, eval_loader, device)
             epsilon = private.privacy_engine.get_epsilon(config.privacy.delta)
-            _log(
+            final_epsilon = epsilon
+            _log_epoch(
                 {
                     "epoch": epoch,
-                    "step": global_step,
-                    "loss": final_metrics["loss"],
-                    "accuracy": final_metrics["accuracy"],
+                    "global_step": global_step,
+                    "train_loss": epoch_train_loss,
+                    "val_loss": final_metrics["loss"],
+                    "val_accuracy": final_metrics["accuracy"],
                     "epsilon": epsilon,
                     "noise_multiplier": private.noise_multiplier,
-                    "phase": "validation",
                 },
                 metrics_writer,
             )
@@ -229,7 +208,6 @@ def train_model(
             if stop_training:
                 break
 
-        final_epsilon = private.privacy_engine.get_epsilon(config.privacy.delta)
     finally:
         if private.hooks is not None:
             private.hooks.cleanup()

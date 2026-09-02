@@ -1,3 +1,4 @@
+import pytest
 import torch
 from transformers import AutoTokenizer, RobertaConfig, RobertaForMaskedLM
 
@@ -84,6 +85,96 @@ def test_qnli_template_always_drops_last_question_char_and_lowercases_sentence()
     assert actual_input_ids == expected_input_ids
 
 
+def test_qnli_sentence_limits_are_applied_before_template_truncation():
+    tokenizer = AutoTokenizer.from_pretrained("FacebookAI/roberta-base")
+    question = "Who wrote the very long book about differential privacy?"
+    sentence = "Ada wrote the very long book about differential privacy."
+    first_sent_limit = 3
+    other_sent_limit = 4
+
+    encoded = tokenize_qnli_batch(
+        tokenizer,
+        [question],
+        [sentence],
+        max_length=128,
+        first_sent_limit=first_sent_limit,
+        other_sent_limit=other_sent_limit,
+        truncate_head=True,
+    )
+    expected_input_ids = (
+        [tokenizer.cls_token_id]
+        + tokenizer.encode(question[:-1], add_special_tokens=False)[
+            :first_sent_limit
+        ]
+        + tokenizer.encode("?", add_special_tokens=False)
+        + [tokenizer.mask_token_id]
+        + tokenizer.encode(",", add_special_tokens=False)
+        + tokenizer.encode(" ada wrote the very long book about differential privacy.", add_special_tokens=False)[
+            :other_sent_limit
+        ]
+        + [tokenizer.sep_token_id]
+    )
+
+    assert encoded["input_ids"][0] == expected_input_ids
+
+
+def test_truncate_head_matches_bedb_after_sentence_limits():
+    tokenizer = AutoTokenizer.from_pretrained("FacebookAI/roberta-base")
+    question = "Who wrote the very long book about differential privacy?"
+    sentence = "Ada wrote the very long book about differential privacy."
+    first_sent_limit = 8
+    other_sent_limit = 8
+    max_length = 12
+
+    question_ids = tokenizer.encode(question[:-1], add_special_tokens=False)[
+        :first_sent_limit
+    ]
+    sentence_ids = tokenizer.encode(
+        " ada wrote the very long book about differential privacy.",
+        add_special_tokens=False,
+    )[:other_sent_limit]
+    full_prompt_after_sent_limits = (
+        [tokenizer.cls_token_id]
+        + question_ids
+        + tokenizer.encode("?", add_special_tokens=False)
+        + [tokenizer.mask_token_id]
+        + tokenizer.encode(",", add_special_tokens=False)
+        + sentence_ids
+        + [tokenizer.sep_token_id]
+    )
+
+    encoded = tokenize_qnli_batch(
+        tokenizer,
+        [question],
+        [sentence],
+        max_length=max_length,
+        first_sent_limit=first_sent_limit,
+        other_sent_limit=other_sent_limit,
+        truncate_head=True,
+    )
+
+    assert len(full_prompt_after_sent_limits) > max_length
+    assert encoded["input_ids"][0] == full_prompt_after_sent_limits[-max_length:]
+    input_ids = encoded["input_ids"][0]
+    assert input_ids.count(tokenizer.mask_token_id) == 1
+    assert encoded["mask_pos"][0] == input_ids.index(tokenizer.mask_token_id)
+
+
+def test_truncation_reports_when_bedb_removes_the_mask():
+    tokenizer = AutoTokenizer.from_pretrained("FacebookAI/roberta-base")
+
+    with pytest.raises(ValueError, match="mask"):
+        tokenize_qnli_batch(
+            tokenizer,
+            ["Who wrote the very long book about differential privacy?"],
+            ["Ada wrote the very long book about differential privacy."],
+            max_length=5,
+            first_sent_limit=8,
+            other_sent_limit=8,
+            truncate_head=False,
+        )
+
+
 def test_prompt_has_one_mask_and_records_its_actual_position():
     tokenizer = AutoTokenizer.from_pretrained("FacebookAI/roberta-base")
     questions = ["Who wrote the book?", "Where is Chengdu"]
@@ -106,11 +197,13 @@ def test_truncation_preserves_qnli_template_structure():
         ["Who wrote the very long book about differential privacy?"],
         ["Ada wrote the very long book about differential privacy."],
         max_length=12,
+        first_sent_limit=8,
+        other_sent_limit=8,
+        truncate_head=True,
     )
 
     input_ids = encoded["input_ids"][0]
     assert len(input_ids) == 12
-    assert input_ids[0] == tokenizer.cls_token_id
     assert input_ids[-1] == tokenizer.sep_token_id
     assert input_ids.count(tokenizer.mask_token_id) == 1
     assert encoded["mask_pos"][0] == input_ids.index(tokenizer.mask_token_id)

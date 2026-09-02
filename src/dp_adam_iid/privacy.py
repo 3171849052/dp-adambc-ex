@@ -1,4 +1,4 @@
-"""Opacus setup: GDP accountant, Ghost Clipping and IID Gaussian DP Adam."""
+"""Opacus setup: GDP accountant, Ghost Clipping and IID Gaussian noise."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from .config import Config
+from .optim import DPAdamBC
 
 
 @dataclass
@@ -124,11 +125,19 @@ def make_private_training(
     per logical batch, and calls the underlying Adam exactly once.
     """
 
-    optimizer = torch.optim.Adam(
-        model.parameters(),
-        lr=config.training.learning_rate,
-        weight_decay=config.training.weight_decay,
-    )
+    if config.training.optimizer.lower() == "adam":
+        optimizer = torch.optim.Adam(
+            model.parameters(),
+            lr=config.training.learning_rate,
+            weight_decay=config.training.weight_decay,
+        )
+    else:
+        optimizer = DPAdamBC(
+            model.parameters(),
+            lr=config.training.learning_rate,
+            gamma_prime=config.training.gamma_prime,
+            weight_decay=config.training.weight_decay,
+        )
     criterion = nn.CrossEntropyLoss(reduction=config.privacy.loss_reduction)
     privacy_engine = PrivacyEngine(accountant=config.privacy.accountant)
 
@@ -142,6 +151,13 @@ def make_private_training(
             config=config,
         )
     )
+
+    if isinstance(optimizer, DPAdamBC):
+        optimizer.configure_dp(
+            noise_multiplier=float(private_optimizer.noise_multiplier),
+            max_grad_norm=float(private_optimizer.max_grad_norm),
+            expected_batch_size=int(private_optimizer.expected_batch_size),
+        )
 
     if config.privacy.wrap_model:
         training_model = private_handle

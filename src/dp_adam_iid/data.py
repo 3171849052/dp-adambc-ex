@@ -105,56 +105,15 @@ def build_qnli_input_ids(
     )
 
 
-def _truncate_qnli_input_ids(
-    tokenizer: PreTrainedTokenizerBase,
-    question_ids: list[int],
-    question_mark_ids: list[int],
-    comma_ids: list[int],
-    sentence_ids: list[int],
-    *,
-    max_length: int,
-) -> list[int]:
-    """Truncate only QNLI text fragments while retaining template structure."""
-
-    # The fixed template pieces are everything except the question and
-    # sentence spans.  They must never be removed by truncation.
-    fixed_length = (
-        1
-        + len(question_mark_ids)
-        + 1  # mask
-        + len(comma_ids)
-        + 1  # sep
-    )
-    available_text_length = max_length - fixed_length
-    if available_text_length < 0:
-        raise ValueError(
-            "max_length is too small to retain the QNLI prompt structure"
-        )
-
-    # Preserve the question first; use any remaining budget for the sentence.
-    # Only these two spans may be shortened.
-    retained_question_length = min(len(question_ids), available_text_length)
-    retained_question = question_ids[:retained_question_length]
-    remaining_text_length = available_text_length - retained_question_length
-    retained_sentence = sentence_ids[:remaining_text_length]
-
-    return (
-        [tokenizer.cls_token_id]
-        + retained_question
-        + question_mark_ids
-        + [tokenizer.mask_token_id]
-        + comma_ids
-        + retained_sentence
-        + [tokenizer.sep_token_id]
-    )
-
-
 def tokenize_qnli_batch(
     tokenizer: PreTrainedTokenizerBase,
     questions: list[str],
     sentences: list[str],
     *,
     max_length: int,
+    first_sent_limit: int = 200,
+    other_sent_limit: int = 200,
+    truncate_head: bool = True,
 ):
     """Tokenize QNLI prompts and record the sole mask position."""
 
@@ -166,20 +125,35 @@ def tokenize_qnli_batch(
         raise ValueError(
             "The QNLI prompt model requires a tokenizer with cls, mask, and sep tokens"
         )
+    if max_length <= 0:
+        raise ValueError("max_length must be positive")
+    if first_sent_limit <= 0:
+        raise ValueError("first_sent_limit must be positive")
+    if other_sent_limit <= 0:
+        raise ValueError("other_sent_limit must be positive")
 
     batch_input_ids = []
     for question, sentence in zip(questions, sentences):
         question_ids, question_mark_ids, comma_ids, sentence_ids = (
             _qnli_prompt_parts(tokenizer, question, sentence)
         )
-        input_ids = _truncate_qnli_input_ids(
-            tokenizer,
-            question_ids,
-            question_mark_ids,
-            comma_ids,
-            sentence_ids,
-            max_length=max_length,
+        question_ids = question_ids[:first_sent_limit]
+        sentence_ids = sentence_ids[:other_sent_limit]
+        input_ids = (
+            [tokenizer.cls_token_id]
+            + question_ids
+            + question_mark_ids
+            + [tokenizer.mask_token_id]
+            + comma_ids
+            + sentence_ids
+            + [tokenizer.sep_token_id]
         )
+        if len(input_ids) > max_length:
+            input_ids = (
+                input_ids[-max_length:]
+                if truncate_head
+                else input_ids[:max_length]
+            )
         batch_input_ids.append(input_ids)
 
     mask_positions = []
@@ -192,7 +166,8 @@ def tokenize_qnli_batch(
         if len(positions) != 1:
             raise ValueError(
                 "Every tokenized QNLI prompt must contain exactly one <mask> token; "
-                f"got {len(positions)}"
+                f"got {len(positions)} after truncation (max_length={max_length}, "
+                f"truncate_head={truncate_head})"
             )
         mask_positions.append(positions[0])
     return {
@@ -222,6 +197,9 @@ def load_qnli(config: Config) -> QNLIData:
             batch["question"],
             batch["sentence"],
             max_length=config.data.max_length,
+            first_sent_limit=config.data.first_sent_limit,
+            other_sent_limit=config.data.other_sent_limit,
+            truncate_head=config.data.truncate_head,
         )
 
     # Restrict before tokenization so the smoke configuration really processes

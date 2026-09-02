@@ -21,7 +21,10 @@ class DataConfig:
     dataset_config: str = "qnli"
     train_split: str = "train"
     eval_split: str = "validation"
-    max_length: int = 128
+    max_length: int = 256
+    first_sent_limit: int = 200
+    other_sent_limit: int = 200
+    truncate_head: bool = True
     logical_batch_size: int = 1024
     max_physical_batch_size: int = 8
     eval_batch_size: int = 32
@@ -35,6 +38,7 @@ class TrainingConfig:
     max_steps: int | None = None
     learning_rate: float = 1.0e-4
     optimizer: str = "adam"
+    gamma_prime: float = 1.0e-8
     weight_decay: float = 0.0
     warmup_steps: int = 0
     scheduler: str = "none"
@@ -115,6 +119,10 @@ class Config:
             raise ValueError("QNLI must use train and validation splits")
         if self.data.max_length <= 0:
             raise ValueError("max_length must be positive")
+        if self.data.first_sent_limit <= 0:
+            raise ValueError("first_sent_limit must be positive")
+        if self.data.other_sent_limit <= 0:
+            raise ValueError("other_sent_limit must be positive")
         if (
             self.data.logical_batch_size <= 0
             or self.data.max_physical_batch_size <= 0
@@ -132,8 +140,10 @@ class Config:
             raise ValueError("max_steps must be positive or null")
         if self.training.learning_rate <= 0:
             raise ValueError("learning_rate must be positive")
-        if self.training.optimizer.lower() != "adam":
-            raise ValueError("Only pure torch.optim.Adam is supported")
+        if self.training.optimizer.lower() not in {"adam", "dpadambc"}:
+            raise ValueError("optimizer must be 'adam' or 'dpadambc'")
+        if self.training.gamma_prime <= 0:
+            raise ValueError("gamma_prime must be positive")
         if self.training.weight_decay != 0:
             raise ValueError("weight_decay is intentionally disabled")
         if self.training.warmup_steps != 0:

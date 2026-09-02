@@ -10,9 +10,12 @@ data:
   dataset_config: qnli
   train_split: train
   eval_split: validation
-  max_length: 128
+  max_length: 256
+  first_sent_limit: 200
+  other_sent_limit: 200
+  truncate_head: true
   logical_batch_size: 512
-  max_physical_batch_size: 64
+  max_physical_batch_size: 32
   eval_batch_size: 32
   max_train_samples: null
   max_eval_samples: null

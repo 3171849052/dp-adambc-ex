@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPOSITORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$REPOSITORY_ROOT/dp-adam-iid"
-export DP_ADAM_IID_REPOSITORY_ROOT="$REPOSITORY_ROOT"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$PROJECT_ROOT"
+export DP_ADAM_IID_REPOSITORY_ROOT="$PROJECT_ROOT"
 
 if ! command -v conda >/dev/null 2>&1; then
   echo "conda is required to activate the curve environment" >&2

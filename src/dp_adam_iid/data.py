@@ -47,13 +47,106 @@ def qnli_verbalizer_token_ids(tokenizer: PreTrainedTokenizerBase) -> tuple[int, 
     return token_ids[0], token_ids[1]
 
 
-def build_qnli_prompt(question: str, sentence: str, mask_token: str) -> str:
-    """Construct the QNLI-specific BEDB text-infilling prompt."""
+def _qnli_prompt_parts(
+    tokenizer: PreTrainedTokenizerBase,
+    question: str,
+    sentence: str,
+) -> tuple[list[int], list[int], list[int], list[int]]:
+    """Encode the four textual spans used by BEDB's QNLI template."""
 
-    question = question.strip()
-    if question.endswith("?"):
-        question = question[:-1].rstrip()
-    return f"{question}? {mask_token}, {sentence.strip()}"
+    if (
+        tokenizer.cls_token_id is None
+        or tokenizer.mask_token_id is None
+        or tokenizer.sep_token_id is None
+    ):
+        raise ValueError(
+            "The QNLI prompt model requires cls, mask, and sep token ids"
+        )
+
+    question_ids = tokenizer.encode(
+        question[:-1],
+        add_special_tokens=False,
+    )
+    question_mark_ids = tokenizer.encode("?", add_special_tokens=False)
+    comma_ids = tokenizer.encode(",", add_special_tokens=False)
+    sentence_lower = sentence[:1].lower() + sentence[1:]
+    sentence_ids = tokenizer.encode(
+        " " + sentence_lower,
+        add_special_tokens=False,
+    )
+    return question_ids, question_mark_ids, comma_ids, sentence_ids
+
+
+def build_qnli_input_ids(
+    tokenizer: PreTrainedTokenizerBase,
+    question: str,
+    sentence: str,
+) -> list[int]:
+    """Construct BEDB's QNLI template directly as token IDs.
+
+    The template is ``*cls**sent-_0*?*mask*,*+sentl_1**sep+*``.  Each
+    textual fragment is encoded independently so this remains equivalent to
+    BEDB's template parser, including the literal leading space before
+    ``+sentl_1``.
+    """
+
+    question_ids, question_mark_ids, comma_ids, sentence_ids = (
+        _qnli_prompt_parts(tokenizer, question, sentence)
+    )
+
+    return (
+        [tokenizer.cls_token_id]
+        + question_ids
+        + question_mark_ids
+        + [tokenizer.mask_token_id]
+        + comma_ids
+        + sentence_ids
+        + [tokenizer.sep_token_id]
+    )
+
+
+def _truncate_qnli_input_ids(
+    tokenizer: PreTrainedTokenizerBase,
+    question_ids: list[int],
+    question_mark_ids: list[int],
+    comma_ids: list[int],
+    sentence_ids: list[int],
+    *,
+    max_length: int,
+) -> list[int]:
+    """Truncate only QNLI text fragments while retaining template structure."""
+
+    # The fixed template pieces are everything except the question and
+    # sentence spans.  They must never be removed by truncation.
+    fixed_length = (
+        1
+        + len(question_mark_ids)
+        + 1  # mask
+        + len(comma_ids)
+        + 1  # sep
+    )
+    available_text_length = max_length - fixed_length
+    if available_text_length < 0:
+        raise ValueError(
+            "max_length is too small to retain the QNLI prompt structure"
+        )
+
+    # Preserve the question first; use any remaining budget for the sentence.
+    # Only these two spans may be shortened.
+    retained_question_length = min(len(question_ids), available_text_length)
+    retained_question = question_ids[:retained_question_length]
+    remaining_text_length = available_text_length - retained_question_length
+    retained_sentence = sentence_ids[:remaining_text_length]
+
+    return (
+        [tokenizer.cls_token_id]
+        + retained_question
+        + question_mark_ids
+        + [tokenizer.mask_token_id]
+        + comma_ids
+        + retained_sentence
+        + [tokenizer.sep_token_id]
+    )
 
 
 def tokenize_qnli_batch(
@@ -65,19 +158,32 @@ def tokenize_qnli_batch(
 ):
     """Tokenize QNLI prompts and record the sole mask position."""
 
-    if tokenizer.mask_token is None or tokenizer.mask_token_id is None:
-        raise ValueError("The QNLI prompt model requires a tokenizer with a mask token")
-    prompts = [
-        build_qnli_prompt(question, sentence, tokenizer.mask_token)
-        for question, sentence in zip(questions, sentences)
-    ]
-    encoded = tokenizer(
-        prompts,
-        truncation=True,
-        max_length=max_length,
-    )
+    if (
+        tokenizer.cls_token_id is None
+        or tokenizer.mask_token_id is None
+        or tokenizer.sep_token_id is None
+    ):
+        raise ValueError(
+            "The QNLI prompt model requires a tokenizer with cls, mask, and sep tokens"
+        )
+
+    batch_input_ids = []
+    for question, sentence in zip(questions, sentences):
+        question_ids, question_mark_ids, comma_ids, sentence_ids = (
+            _qnli_prompt_parts(tokenizer, question, sentence)
+        )
+        input_ids = _truncate_qnli_input_ids(
+            tokenizer,
+            question_ids,
+            question_mark_ids,
+            comma_ids,
+            sentence_ids,
+            max_length=max_length,
+        )
+        batch_input_ids.append(input_ids)
+
     mask_positions = []
-    for input_ids in encoded["input_ids"]:
+    for input_ids in batch_input_ids:
         positions = [
             index
             for index, token_id in enumerate(input_ids)
@@ -89,8 +195,11 @@ def tokenize_qnli_batch(
                 f"got {len(positions)}"
             )
         mask_positions.append(positions[0])
-    encoded["mask_pos"] = mask_positions
-    return encoded
+    return {
+        "input_ids": batch_input_ids,
+        "attention_mask": [[1] * len(input_ids) for input_ids in batch_input_ids],
+        "mask_pos": mask_positions,
+    }
 
 
 def load_qnli(config: Config) -> QNLIData:

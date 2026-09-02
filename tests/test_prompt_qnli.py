@@ -3,7 +3,7 @@ from transformers import AutoTokenizer, RobertaConfig, RobertaForMaskedLM
 
 from dp_adam_iid.data import (
     QNLI_VERBALIZER,
-    build_qnli_prompt,
+    build_qnli_input_ids,
     qnli_verbalizer_token_ids,
     tokenize_qnli_batch,
 )
@@ -20,14 +20,75 @@ def test_qnli_bedb_verbalizer_uses_single_roberta_tokens_in_label_order():
     assert [no_token_id] == tokenizer.encode(" no", add_special_tokens=False)
 
 
+def test_qnli_prompt_matches_bedb_token_ids_exactly():
+    tokenizer = AutoTokenizer.from_pretrained("FacebookAI/roberta-base")
+
+    actual_input_ids = build_qnli_input_ids(
+        tokenizer,
+        "Who wrote the book?",
+        "Ada wrote the book.",
+    )
+    expected_input_ids = (
+        [tokenizer.cls_token_id]
+        + tokenizer.encode(
+            "Who wrote the book",
+            add_special_tokens=False,
+        )
+        + tokenizer.encode(
+            "?",
+            add_special_tokens=False,
+        )
+        + [tokenizer.mask_token_id]
+        + tokenizer.encode(
+            ",",
+            add_special_tokens=False,
+        )
+        + tokenizer.encode(
+            " ada wrote the book.",
+            add_special_tokens=False,
+        )
+        + [tokenizer.sep_token_id]
+    )
+
+    assert actual_input_ids == expected_input_ids
+    encoded = tokenize_qnli_batch(
+        tokenizer,
+        ["Who wrote the book?"],
+        ["Ada wrote the book."],
+        max_length=64,
+    )
+    assert encoded["input_ids"][0] == expected_input_ids
+
+
+def test_qnli_template_always_drops_last_question_char_and_lowercases_sentence():
+    tokenizer = AutoTokenizer.from_pretrained("FacebookAI/roberta-base")
+
+    actual_input_ids = build_qnli_input_ids(
+        tokenizer,
+        "Where is Chengdu",
+        "Chengdu is in Sichuan.",
+    )
+    expected_input_ids = (
+        [tokenizer.cls_token_id]
+        + tokenizer.encode("Where is Chengd", add_special_tokens=False)
+        + tokenizer.encode("?", add_special_tokens=False)
+        + [tokenizer.mask_token_id]
+        + tokenizer.encode(",", add_special_tokens=False)
+        + tokenizer.encode(
+            " chengdu is in Sichuan.",
+            add_special_tokens=False,
+        )
+        + [tokenizer.sep_token_id]
+    )
+
+    assert actual_input_ids == expected_input_ids
+
+
 def test_prompt_has_one_mask_and_records_its_actual_position():
     tokenizer = AutoTokenizer.from_pretrained("FacebookAI/roberta-base")
     questions = ["Who wrote the book?", "Where is Chengdu"]
     sentences = ["Ada wrote the book.", "Chengdu is in Sichuan."]
 
-    assert build_qnli_prompt(questions[0], sentences[0], tokenizer.mask_token) == (
-        "Who wrote the book? <mask>, Ada wrote the book."
-    )
     encoded = tokenize_qnli_batch(
         tokenizer, questions, sentences, max_length=64
     )
@@ -35,6 +96,24 @@ def test_prompt_has_one_mask_and_records_its_actual_position():
     for input_ids, mask_pos in zip(encoded["input_ids"], encoded["mask_pos"]):
         assert input_ids.count(tokenizer.mask_token_id) == 1
         assert input_ids[mask_pos] == tokenizer.mask_token_id
+        assert mask_pos == input_ids.index(tokenizer.mask_token_id)
+
+
+def test_truncation_preserves_qnli_template_structure():
+    tokenizer = AutoTokenizer.from_pretrained("FacebookAI/roberta-base")
+    encoded = tokenize_qnli_batch(
+        tokenizer,
+        ["Who wrote the very long book about differential privacy?"],
+        ["Ada wrote the very long book about differential privacy."],
+        max_length=12,
+    )
+
+    input_ids = encoded["input_ids"][0]
+    assert len(input_ids) == 12
+    assert input_ids[0] == tokenizer.cls_token_id
+    assert input_ids[-1] == tokenizer.sep_token_id
+    assert input_ids.count(tokenizer.mask_token_id) == 1
+    assert encoded["mask_pos"][0] == input_ids.index(tokenizer.mask_token_id)
 
 
 def test_prompt_model_returns_yes_no_logits_without_classification_head():

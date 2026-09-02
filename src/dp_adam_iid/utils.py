@@ -19,8 +19,30 @@ def set_seed(seed: int) -> None:
 
 def resolve_device(name: str) -> torch.device:
     if name == "auto":
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        return torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     device = torch.device(name)
     if device.type == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA was requested but is not available")
+    if device.type == "cuda":
+        if device.index not in (None, 0):
+            raise RuntimeError(
+                "CUDA_VISIBLE_DEVICES maps the selected physical GPU to cuda:0; "
+                "runtime.device must be 'cuda' or 'cuda:0'"
+            )
+        return torch.device("cuda:0")
     return device
+
+
+def validate_gpu_selection(gpu: int) -> None:
+    """Fail early when the configured physical GPU cannot be selected."""
+
+    if not torch.cuda.is_available():
+        raise RuntimeError(
+            f"runtime.gpu={gpu} requested, but CUDA is not available"
+        )
+    device_count = torch.cuda.device_count()
+    if gpu >= device_count:
+        raise RuntimeError(
+            f"runtime.gpu={gpu} is invalid: only {device_count} physical CUDA "
+            "GPU(s) are available"
+        )

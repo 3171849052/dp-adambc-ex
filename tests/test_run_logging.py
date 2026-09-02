@@ -49,6 +49,13 @@ def test_run_name_changes_with_algorithm_and_parameters(tmp_path):
     )
 
 
+def test_run_name_does_not_include_physical_gpu_index(tmp_path):
+    config = _config(tmp_path)
+    baseline = format_run_name(config, datetime(2026, 9, 2, 18, 5, 0))
+    config.runtime.gpu = 2
+    assert format_run_name(config, datetime(2026, 9, 2, 18, 5, 0)) == baseline
+
+
 def test_same_second_collision_advances_timestamp_without_suffix(tmp_path):
     config = _config(tmp_path)
     now = datetime(2026, 9, 2, 18, 5, 0)

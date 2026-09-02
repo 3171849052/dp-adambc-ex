@@ -36,7 +36,13 @@ eval "$(conda shell.bash hook)"
 conda activate curve
 
 CONFIG="$(realpath "$CONFIG")"
-RUN_DIR="$(cd "$ROOT" && python -u scripts/train.py --config "$CONFIG" --prepare-run)"
+GPU="$(cd "$ROOT" && env -u CUDA_VISIBLE_DEVICES python -u scripts/train.py --config "$CONFIG" --print-gpu)"
+if ! (cd "$ROOT" && env -u CUDA_VISIBLE_DEVICES python -u scripts/train.py --config "$CONFIG" --validate-gpu >/dev/null); then
+  echo "GPU validation failed; refusing to start tmux training" >&2
+  exit 1
+fi
+
+RUN_DIR="$(cd "$ROOT" && CUDA_VISIBLE_DEVICES="$GPU" python -u scripts/train.py --config "$CONFIG" --prepare-run)"
 RUN_DIR="$(realpath "$RUN_DIR")"
 TRAIN_LOG="$RUN_DIR/train.log"
 SESSION="$(cd "$ROOT" && python -u scripts/train.py --tmux-session-name "$RUN_DIR")"
@@ -47,10 +53,11 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
 fi
 
 printf -v COMMAND \
-  'cd %q && eval "$(conda shell.bash hook)" && conda activate curve && set -o pipefail && python -u scripts/train.py --config %q --run-dir %q 2>&1 | tee -a %q' \
-  "$ROOT" "$CONFIG" "$RUN_DIR" "$TRAIN_LOG"
+  'cd %q && eval "$(conda shell.bash hook)" && conda activate curve && GPU=%q && set -o pipefail && CUDA_VISIBLE_DEVICES="$GPU" python -u scripts/train.py --config %q --run-dir %q 2>&1 | tee -a %q' \
+  "$ROOT" "$GPU" "$CONFIG" "$RUN_DIR" "$TRAIN_LOG"
 tmux new-session -d -s "$SESSION" "$COMMAND"
 
+echo "physical GPU: $GPU"
 echo "tmux session: $SESSION"
 echo "run directory: $RUN_DIR"
 echo "log: $TRAIN_LOG"

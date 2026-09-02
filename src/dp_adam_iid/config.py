@@ -58,6 +58,7 @@ class PrivacyConfig:
 @dataclass
 class RuntimeConfig:
     device: str = "auto"
+    gpu: int = 0
     num_workers: int = 0
     pin_memory: bool = True
 
@@ -159,6 +160,10 @@ class Config:
 
         if self.runtime.num_workers < 0:
             raise ValueError("num_workers must be non-negative")
+        if isinstance(self.runtime.gpu, bool) or not isinstance(self.runtime.gpu, int):
+            raise ValueError("runtime.gpu must be a non-negative integer")
+        if self.runtime.gpu < 0:
+            raise ValueError("runtime.gpu must be a non-negative integer")
         if not isinstance(self.output.root, str) or not self.output.root.strip():
             raise ValueError("output.root must be a non-empty path")
         if self.logging.log_every_steps <= 0:

@@ -34,6 +34,18 @@ kill: tmux kill-session -t <session>
 
 如果 tmux session 已存在，启动会明确报错且不会覆盖已有 session。
 
+GPU 通过 YAML 的 `runtime.gpu` 选择物理 GPU，不需要修改 `run.sh`：
+
+```yaml
+runtime:
+  device: auto
+  gpu: 0
+```
+
+例如 `gpu: 2` 会在 tmux 进程中设置
+`CUDA_VISIBLE_DEVICES=2`；因此训练进程内部统一使用 `cuda:0`。启动前会检查
+CUDA 是否可用以及物理 GPU 序号是否有效。run directory 的命名不包含 GPU 序号。
+
 当前环境已经提供项目依赖。若需要将项目安装为 editable package，可在不解析
 依赖的情况下执行：
 

@@ -19,8 +19,6 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 import torch  # noqa: E402
 
 from dp_adam_iid.config import Config, load_config  # noqa: E402
-from dp_adam_iid.data import load_qnli  # noqa: E402
-from dp_adam_iid.model import build_model  # noqa: E402
 from dp_adam_iid.run_logging import (  # noqa: E402
     MetricsCSVWriter,
     RunPaths,
@@ -30,8 +28,11 @@ from dp_adam_iid.run_logging import (  # noqa: E402
     tee_output,
     write_run_metadata,
 )
-from dp_adam_iid.trainer import TrainingResult, train_model  # noqa: E402
-from dp_adam_iid.utils import resolve_device, set_seed  # noqa: E402
+from dp_adam_iid.utils import (  # noqa: E402
+    resolve_device,
+    set_seed,
+    validate_gpu_selection,
+)
 
 
 DEFAULT_CONFIG = PROJECT_ROOT / "config/qnli_roberta_base.yaml"
@@ -57,7 +58,18 @@ def _resolved_config(
     result: TrainingResult | None = None,
 ) -> dict[str, Any]:
     resolved = config.to_dict()
+    visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
+    gpu_name = None
+    if device.type == "cuda" and torch.cuda.is_available():
+        visible_index = 0 if visible_devices is not None else config.runtime.gpu
+        try:
+            gpu_name = torch.cuda.get_device_name(visible_index)
+        except (IndexError, RuntimeError):
+            gpu_name = None
     resolved["runtime"]["actual_device"] = str(device)
+    resolved["runtime"]["physical_gpu_index"] = config.runtime.gpu
+    resolved["runtime"]["cuda_visible_devices"] = visible_devices
+    resolved["runtime"]["gpu_name"] = gpu_name
     resolved["data"]["train_size"] = train_size
     resolved["data"]["eval_size"] = eval_size
     resolved["privacy"]["noise_multiplier"] = (
@@ -112,6 +124,10 @@ def prepare_run(config_file: str | Path) -> RunPaths:
 
 
 def run_experiment(config_file: str | Path, *, run_dir: str | Path | None = None) -> int:
+    from dp_adam_iid.data import load_qnli
+    from dp_adam_iid.model import build_model
+    from dp_adam_iid.trainer import train_model
+
     config_path = Path(config_file)
     source_yaml = config_path.read_text(encoding="utf-8")
     config = load_config(config_path)
@@ -216,18 +232,45 @@ def main() -> int:
         type=Path,
         help="print the tmux-safe session name for a run directory",
     )
+    parser.add_argument(
+        "--print-gpu",
+        action="store_true",
+        help="parse the config and print the configured physical GPU index",
+    )
+    parser.add_argument(
+        "--validate-gpu",
+        action="store_true",
+        help="validate CUDA and the configured physical GPU index",
+    )
     args = parser.parse_args()
     if args.config is not None and args.config_option is not None:
         parser.error("provide the config path either positionally or with --config")
     if args.prepare_run and args.run_dir is not None:
         parser.error("--prepare-run and --run-dir are mutually exclusive")
+    if args.print_gpu and args.validate_gpu:
+        parser.error("--print-gpu and --validate-gpu are mutually exclusive")
     if args.tmux_session_name is not None:
-        if args.prepare_run or args.run_dir is not None:
+        if (
+            args.prepare_run
+            or args.run_dir is not None
+            or args.print_gpu
+            or args.validate_gpu
+        ):
             parser.error("--tmux-session-name cannot be combined with a run mode")
         print(format_tmux_session_name(args.tmux_session_name))
         return 0
 
     config_path = _config_path(args.config_option or args.config)
+    if args.print_gpu or args.validate_gpu:
+        try:
+            config = load_config(config_path)
+            if args.validate_gpu:
+                validate_gpu_selection(config.runtime.gpu)
+            print(config.runtime.gpu)
+            return 0
+        except (OSError, ValueError, RuntimeError) as error:
+            print(f"error: {error}", file=sys.stderr)
+            return 1
     if args.prepare_run:
         print(prepare_run(config_path).directory.resolve())
         return 0

@@ -15,20 +15,20 @@ def test_default_config_contains_requested_experiment_defaults():
     assert config.algorithm == "dpadam"
     assert config.model.name == "FacebookAI/roberta-base"
     assert config.data.logical_batch_size == 512
-    assert config.data.max_physical_batch_size == 32
+    assert config.data.max_physical_batch_size == 16
     assert config.data.max_length == 256
     assert config.data.first_sent_limit == 200
     assert config.data.other_sent_limit == 200
     assert config.data.truncate_head is True
     assert config.training.epochs == 5
-    assert config.training.learning_rate == 1.0e-4
+    assert config.training.learning_rate == 5.0e-5
     assert config.privacy.epsilon == 3.0
     assert config.privacy.delta == 1.0e-5
     assert config.privacy.max_grad_norm == 1.0
     assert config.privacy.accountant == "gdp"
     assert config.privacy.grad_sample_mode == "ghost"
     assert config.output.root == "outputs"
-    assert config.runtime.gpu == 0
+    assert config.runtime.gpu == 1
 
 
 def test_config_rejects_non_adam_or_non_gdp_choices():
@@ -48,16 +48,49 @@ def test_dpadambc_config_loads_with_positive_gamma_prime():
 
     assert config.algorithm == "dpadambc"
     assert config.training.optimizer == "dpadambc"
-    assert config.training.gamma_prime == pytest.approx(1.0e-8)
+    assert config.training.gamma_prime == pytest.approx(1.0e-7)
 
     config.training.gamma_prime = 0.0
     with pytest.raises(ValueError, match="gamma_prime"):
         config.validate()
 
 
+def test_fpcdpadam_config_loads_with_requested_settings():
+    config = load_config(PROJECT_ROOT / "config/qnli_roberta_base_fpcdpadam.yaml")
+
+    assert config.algorithm == "fpcdpadam"
+    assert config.training.optimizer == "fpcdpadam"
+    assert config.training.gamma_prime == pytest.approx(1.0e-7)
+    assert config.training.fpc_lambda == pytest.approx(0.5)
+    assert config.training.fpc_mode == "current"
+    assert config.training.fpc_delay_q0 == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("fpc_lambda", -0.01),
+        ("fpc_lambda", 1.01),
+        ("fpc_mode", "other"),
+        ("fpc_delay_q0", 0.0),
+        ("fpc_delay_q0", -1.0),
+    ],
+)
+def test_fpc_config_rejects_invalid_parameters(field, value):
+    config = load_config(PROJECT_ROOT / "config/qnli_roberta_base_fpcdpadam.yaml")
+    setattr(config.training, field, value)
+
+    with pytest.raises(ValueError, match=field):
+        config.validate()
+
+
 @pytest.mark.parametrize(
     ("algorithm", "optimizer"),
-    [("dpadam", "adam"), ("dpadambc", "dpadambc")],
+    [
+        ("dpadam", "adam"),
+        ("dpadambc", "dpadambc"),
+        ("fpcdpadam", "fpcdpadam"),
+    ],
 )
 def test_algorithm_and_optimizer_matching_pairs_are_valid(algorithm, optimizer):
     config = load_config(PROJECT_ROOT / "config/qnli_roberta_base.yaml")
@@ -69,7 +102,11 @@ def test_algorithm_and_optimizer_matching_pairs_are_valid(algorithm, optimizer):
 
 @pytest.mark.parametrize(
     ("algorithm", "optimizer"),
-    [("dpadam", "dpadambc"), ("dpadambc", "adam")],
+    [
+        ("dpadam", "dpadambc"),
+        ("dpadambc", "adam"),
+        ("fpcdpadam", "dpadambc"),
+    ],
 )
 def test_algorithm_and_optimizer_mismatched_pairs_are_rejected(
     algorithm, optimizer

@@ -80,6 +80,40 @@ def test_prepare_run_creates_metadata_and_no_checkpoint(tmp_path: Path):
     assert print_result.stdout == "2\n"
 
 
+def test_prepare_fpc_run_creates_diagnostics_file(tmp_path: Path):
+    source = yaml.safe_load(
+        (PROJECT_ROOT / "config/qnli_roberta_base_fpcdpadam.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    source["runtime"]["device"] = "cpu"
+    source["output"]["root"] = str(tmp_path / "outputs")
+    config_path = tmp_path / "fpc.yaml"
+    config_path.write_text(yaml.safe_dump(source, sort_keys=False), encoding="utf-8")
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(PROJECT_ROOT / "src")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(PROJECT_ROOT / "scripts/train.py"),
+            "--config",
+            str(config_path),
+            "--prepare-run",
+        ],
+        cwd=PROJECT_ROOT,
+        env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    diagnostics = Path(result.stdout.strip()) / "fpc_diagnostics.csv"
+    assert diagnostics.read_text(encoding="utf-8") == (
+        "global_step,predictor_x_gap_mse\n"
+    )
+
+
 def test_launcher_uses_python_gpu_selection_and_visible_device_mapping():
     launcher = (PROJECT_ROOT / "run.sh").read_text(encoding="utf-8")
     assert "--print-gpu" in launcher

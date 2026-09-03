@@ -16,7 +16,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from .config import Config
-from .optim import DPAdamBC
+from .optim import DPAdamBC, FPCDPAdam
 
 
 @dataclass
@@ -127,17 +127,28 @@ def make_private_training(
     per logical batch, and calls the underlying Adam exactly once.
     """
 
-    if config.training.optimizer.lower() == "adam":
+    optimizer_name = config.training.optimizer.lower()
+    if optimizer_name == "adam":
         optimizer = torch.optim.Adam(
             model.parameters(),
             lr=config.training.learning_rate,
             weight_decay=config.training.weight_decay,
         )
-    else:
+    elif optimizer_name == "dpadambc":
         optimizer = DPAdamBC(
             model.parameters(),
             lr=config.training.learning_rate,
             gamma_prime=config.training.gamma_prime,
+            weight_decay=config.training.weight_decay,
+        )
+    else:
+        optimizer = FPCDPAdam(
+            model.parameters(),
+            lr=config.training.learning_rate,
+            gamma_prime=config.training.gamma_prime,
+            fpc_lambda=config.training.fpc_lambda,
+            fpc_mode=config.training.fpc_mode,
+            fpc_delay_q0=config.training.fpc_delay_q0,
             weight_decay=config.training.weight_decay,
         )
     criterion = nn.CrossEntropyLoss(reduction=config.privacy.loss_reduction)
@@ -154,7 +165,7 @@ def make_private_training(
         )
     )
 
-    if isinstance(optimizer, DPAdamBC):
+    if isinstance(optimizer, (DPAdamBC, FPCDPAdam)):
         expected_batch_size = int(private_optimizer.expected_batch_size)
         optimizer.configure_dp(
             noise_multiplier=float(private_optimizer.noise_multiplier),

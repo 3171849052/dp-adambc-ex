@@ -20,6 +20,7 @@ import torch  # noqa: E402
 
 from dp_adam_iid.config import Config, load_config  # noqa: E402
 from dp_adam_iid.run_logging import (  # noqa: E402
+    FPCDiagnosticsCSVWriter,
     MetricsCSVWriter,
     RunPaths,
     create_run_directory,
@@ -126,6 +127,8 @@ def prepare_run(config_file: str | Path) -> RunPaths:
         resolved_config=_resolved_config(config, paths, device),
     )
     MetricsCSVWriter(paths.metrics)
+    if config.algorithm.lower() == "fpcdpadam":
+        FPCDiagnosticsCSVWriter(paths.fpc_diagnostics)
     return paths
 
 
@@ -148,6 +151,11 @@ def run_experiment(config_file: str | Path, *, run_dir: str | Path | None = None
         resolved_config=_resolved_config(config, paths, device),
     )
     metrics_writer = MetricsCSVWriter(paths.metrics)
+    fpc_diagnostics_writer = (
+        FPCDiagnosticsCSVWriter(paths.fpc_diagnostics)
+        if config.algorithm.lower() == "fpcdpadam"
+        else None
+    )
 
     # The tmux launcher owns teeing for prepared runs. Keep the old direct
     # invocation behavior for callers that let this function allocate a run.
@@ -198,6 +206,7 @@ def run_experiment(config_file: str | Path, *, run_dir: str | Path | None = None
                 data.eval_loader,
                 device,
                 metrics_writer=metrics_writer,
+                fpc_diagnostics_writer=fpc_diagnostics_writer,
             )
             resolved = _resolved_config(
                 config,

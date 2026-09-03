@@ -27,7 +27,10 @@ METRICS_FIELDS = (
     "val_accuracy",
     "epsilon",
     "noise_multiplier",
+    "predictor_x_gap_mse",
 )
+
+FPC_DIAGNOSTICS_FIELDS = ("global_step", "predictor_x_gap_mse")
 
 
 @dataclass(frozen=True)
@@ -38,6 +41,7 @@ class RunPaths:
     config: Path
     resolved_config: Path
     metrics: Path
+    fpc_diagnostics: Path
     summary: Path
     train_log: Path
 
@@ -89,6 +93,7 @@ def _run_paths(directory: Path) -> RunPaths:
         config=directory / "config.yaml",
         resolved_config=directory / "resolved_config.yaml",
         metrics=directory / "metrics.csv",
+        fpc_diagnostics=directory / "fpc_diagnostics.csv",
         summary=directory / "summary.json",
         train_log=directory / "train.log",
     )
@@ -180,6 +185,31 @@ class MetricsCSVWriter:
             os.fsync(stream.fileno())
 
 
+class FPCDiagnosticsCSVWriter:
+    """Append one flushed scalar diagnostic per real logical FPC step."""
+
+    def __init__(self, path: str | Path):
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        if not self.path.exists() or not self.path.stat().st_size:
+            with self.path.open("w", newline="", encoding="utf-8") as stream:
+                csv.DictWriter(
+                    stream, fieldnames=FPC_DIAGNOSTICS_FIELDS
+                ).writeheader()
+                stream.flush()
+                os.fsync(stream.fileno())
+
+    def append(self, record: Mapping[str, Any]) -> None:
+        if set(record) != set(FPC_DIAGNOSTICS_FIELDS):
+            raise ValueError("FPC diagnostics record must contain exactly the CSV fields")
+        with self.path.open("a", newline="", encoding="utf-8") as stream:
+            csv.DictWriter(
+                stream, fieldnames=FPC_DIAGNOSTICS_FIELDS
+            ).writerow(record)
+            stream.flush()
+            os.fsync(stream.fileno())
+
+
 class _TeeStream:
     def __init__(self, terminal: TextIO, log: TextIO):
         self._terminal = terminal
@@ -217,6 +247,8 @@ def tee_output(path: str | Path) -> Iterator[None]:
 
 
 __all__ = [
+    "FPC_DIAGNOSTICS_FIELDS",
+    "FPCDiagnosticsCSVWriter",
     "METRICS_FIELDS",
     "MetricsCSVWriter",
     "RunPaths",

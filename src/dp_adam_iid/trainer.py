@@ -14,7 +14,8 @@ from tqdm import tqdm
 
 from .config import Config
 from .privacy import PrivateTraining, make_private_training
-from .run_logging import MetricsCSVWriter
+from .optim import FPCDPAdam
+from .run_logging import FPCDiagnosticsCSVWriter, MetricsCSVWriter
 
 
 @dataclass
@@ -104,6 +105,7 @@ def train_model(
     eval_loader: DataLoader,
     device: torch.device,
     metrics_writer: MetricsCSVWriter | None = None,
+    fpc_diagnostics_writer: FPCDiagnosticsCSVWriter | None = None,
 ) -> TrainingResult:
     """Train a model using one private Adam update per logical batch."""
 
@@ -121,6 +123,12 @@ def train_model(
     )
     private_model = private.model
     private_optimizer = private.optimizer
+    underlying_optimizer = private_optimizer.original_optimizer
+    fpc_optimizer = (
+        underlying_optimizer
+        if isinstance(underlying_optimizer, FPCDPAdam)
+        else None
+    )
     private_model.train()
 
     best_accuracy = float("-inf")
@@ -143,6 +151,8 @@ def train_model(
             logical_examples = 0
             epoch_loss_sum = 0.0
             epoch_examples = 0
+            epoch_predictor_gap_sum = 0.0
+            epoch_predictor_gap_steps = 0
             with _progress_bar(
                 total=len(private.data_loader),
                 desc=f"Epoch {epoch}/{config.training.epochs}",
@@ -183,6 +193,22 @@ def train_model(
                         # state and is the direct indicator of a real optimizer step.
                         if not bool(getattr(private_optimizer, "_is_last_step_skipped", False)):
                             global_step += 1
+                            if fpc_optimizer is not None:
+                                predictor_gap = fpc_optimizer.last_predictor_x_gap_mse
+                                if predictor_gap is None:
+                                    raise RuntimeError(
+                                        "FPC predictor diagnostic could not read "
+                                        "Opacus summed_grad"
+                                    )
+                                epoch_predictor_gap_sum += predictor_gap
+                                epoch_predictor_gap_steps += 1
+                                if fpc_diagnostics_writer is not None:
+                                    fpc_diagnostics_writer.append(
+                                        {
+                                            "global_step": global_step,
+                                            "predictor_x_gap_mse": predictor_gap,
+                                        }
+                                    )
                             logical_loss = logical_loss_sum / max(logical_examples, 1)
                             progress.update(1)
                             progress.set_postfix(loss=f"{logical_loss:.2f}")
@@ -209,6 +235,11 @@ def train_model(
                     "val_accuracy": final_metrics["accuracy"],
                     "epsilon": epsilon,
                     "noise_multiplier": private.noise_multiplier,
+                    "predictor_x_gap_mse": (
+                        epoch_predictor_gap_sum / epoch_predictor_gap_steps
+                        if epoch_predictor_gap_steps
+                        else None
+                    ),
                 },
                 metrics_writer,
             )

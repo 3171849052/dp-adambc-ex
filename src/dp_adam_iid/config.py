@@ -39,6 +39,9 @@ class TrainingConfig:
     learning_rate: float = 1.0e-4
     optimizer: str = "adam"
     gamma_prime: float = 1.0e-8
+    fpc_lambda: float = 0.5
+    fpc_mode: str = "current"
+    fpc_delay_q0: float = 1.0
     weight_decay: float = 0.0
     warmup_steps: int = 0
     scheduler: str = "none"
@@ -140,14 +143,21 @@ class Config:
             raise ValueError("max_steps must be positive or null")
         if self.training.learning_rate <= 0:
             raise ValueError("learning_rate must be positive")
-        if self.training.optimizer.lower() not in {"adam", "dpadambc"}:
-            raise ValueError("Only Adam and DPAdamBC optimizers are supported")
+        if self.training.optimizer.lower() not in {
+            "adam",
+            "dpadambc",
+            "fpcdpadam",
+        }:
+            raise ValueError("Only Adam, DPAdamBC, and FPCDPAdam optimizers are supported")
         expected_optimizer = {
             "dpadam": "adam",
             "dpadambc": "dpadambc",
+            "fpcdpadam": "fpcdpadam",
         }.get(self.algorithm.lower())
         if expected_optimizer is None:
-            raise ValueError("algorithm must be 'dpadam' or 'dpadambc'")
+            raise ValueError(
+                "algorithm must be 'dpadam', 'dpadambc', or 'fpcdpadam'"
+            )
         if self.training.optimizer.lower() != expected_optimizer:
             raise ValueError(
                 f"algorithm '{self.algorithm}' requires training.optimizer "
@@ -155,6 +165,12 @@ class Config:
             )
         if self.training.gamma_prime <= 0:
             raise ValueError("gamma_prime must be positive")
+        if not 0 <= self.training.fpc_lambda <= 1:
+            raise ValueError("fpc_lambda must be between 0 and 1")
+        if self.training.fpc_mode not in {"current", "delay"}:
+            raise ValueError("fpc_mode must be 'current' or 'delay'")
+        if self.training.fpc_delay_q0 <= 0:
+            raise ValueError("fpc_delay_q0 must be positive")
         if self.training.weight_decay != 0:
             raise ValueError("weight_decay is intentionally disabled")
         if self.training.warmup_steps != 0:

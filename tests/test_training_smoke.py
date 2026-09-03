@@ -3,6 +3,7 @@ from pathlib import Path
 from datetime import datetime
 
 import torch
+import pytest
 from torch.utils.data import DataLoader, Dataset
 from transformers import RobertaConfig, RobertaForMaskedLM
 
@@ -10,6 +11,7 @@ from dp_adam_iid.config import Config
 from dp_adam_iid.model import RobertaPromptForQNLI
 from opacus import PrivacyEngine
 from dp_adam_iid.run_logging import (
+    FPCDiagnosticsCSVWriter,
     MetricsCSVWriter,
     create_run_directory,
     tee_output,
@@ -168,5 +170,72 @@ def test_prompt_dp_smoke_writes_one_epoch_row_without_step_metrics(
         "val_accuracy",
         "epsilon",
         "noise_multiplier",
+        "predictor_x_gap_mse",
     ]
     assert int(rows[0]["global_step"]) == result.global_step
+
+
+def test_fpc_training_writes_one_diagnostic_per_logical_step(tmp_path: Path):
+    config = Config.from_dict(
+        {
+            "algorithm": "fpcdpadam",
+            "seed": 0,
+            "model": {"name": "test", "num_labels": 2},
+            "data": {
+                "logical_batch_size": 4,
+                "max_physical_batch_size": 2,
+                "eval_batch_size": 4,
+            },
+            "training": {
+                "epochs": 1,
+                "learning_rate": 1.0e-4,
+                "optimizer": "fpcdpadam",
+                "gamma_prime": 1.0e-4,
+                "fpc_lambda": 0.5,
+                "fpc_mode": "current",
+                "fpc_delay_q0": 1.0,
+            },
+            "privacy": {
+                "epsilon": 3.0,
+                "delta": 1.0e-5,
+                "accountant": "gdp",
+                "max_grad_norm": 1.0,
+                "clipping": "flat",
+                "grad_sample_mode": "ghost",
+                "poisson_sampling": True,
+                "loss_reduction": "mean",
+                "wrap_model": False,
+            },
+            "runtime": {"device": "cpu", "pin_memory": False},
+            "output": {"root": str(tmp_path)},
+        }
+    )
+    paths = create_run_directory(config)
+    metrics_writer = MetricsCSVWriter(paths.metrics)
+    diagnostics_writer = FPCDiagnosticsCSVWriter(paths.fpc_diagnostics)
+    loader = DataLoader(TinyDataset(), batch_size=4, shuffle=False)
+
+    result = train_model(
+        config,
+        _tiny_prompt_model(),
+        loader,
+        loader,
+        torch.device("cpu"),
+        metrics_writer=metrics_writer,
+        fpc_diagnostics_writer=diagnostics_writer,
+    )
+
+    with paths.fpc_diagnostics.open(newline="", encoding="utf-8") as stream:
+        diagnostic_rows = list(csv.DictReader(stream))
+    assert len(diagnostic_rows) == result.global_step
+    assert [int(row["global_step"]) for row in diagnostic_rows] == list(
+        range(1, result.global_step + 1)
+    )
+    assert all(float(row["predictor_x_gap_mse"]) >= 0 for row in diagnostic_rows)
+
+    with paths.metrics.open(newline="", encoding="utf-8") as stream:
+        metrics_rows = list(csv.DictReader(stream))
+    expected_mean = sum(
+        float(row["predictor_x_gap_mse"]) for row in diagnostic_rows
+    ) / len(diagnostic_rows)
+    assert float(metrics_rows[0]["predictor_x_gap_mse"]) == pytest.approx(expected_mean)

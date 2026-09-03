@@ -15,7 +15,7 @@ data:
   other_sent_limit: 200
   truncate_head: true
   logical_batch_size: 512
-  max_physical_batch_size: 32
+  max_physical_batch_size: 16
   eval_batch_size: 32
   max_train_samples: null
   max_eval_samples: null
@@ -25,7 +25,7 @@ training:
   max_steps: null
   learning_rate: 1.0e-4
   optimizer: dpadambc
-  gamma_prime: 1.0e-8
+  gamma_prime: 1.0e-7
   weight_decay: 0.0
   warmup_steps: 0
   scheduler: none

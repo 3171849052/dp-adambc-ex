@@ -137,6 +137,8 @@ def test_prompt_dp_smoke_writes_one_epoch_row_without_step_metrics(
     )
 
     assert result.global_step == len(loader)
+    assert result.expected_batch_size is None
+    assert result.phi is None
     assert epsilon_calls == 1
     assert 0.0 <= result.final_metrics["accuracy"] <= 1.0
     assert {
@@ -150,6 +152,8 @@ def test_prompt_dp_smoke_writes_one_epoch_row_without_step_metrics(
     log = paths.train_log.read_text()
     assert "\"phase\"" not in log
     assert log.count("\"global_step\"") == 1
+    assert "initializing Opacus private training..." in log
+    assert "Opacus private training ready: noise_multiplier=" in log
     assert "Epoch 1/1" in log
     assert "Evaluating" in log
 

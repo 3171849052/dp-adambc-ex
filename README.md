@@ -92,6 +92,13 @@ epoch 内的 logical DP optimizer steps 和 running loss；验证阶段按普通
 YYYYMMDD-HHMMSS_{algorithm}_eps{epsilon}_d{delta}_ep{epochs}_lb{logical_batch_size}_lr{learning_rate}_C{max_grad_norm}_s{seed}
 ```
 
+对于 `dpadambc`，算法名后还会追加
+`_g{gamma_prime}`，其中 `g` 表示 `gamma_prime`：
+
+```text
+YYYYMMDD-HHMMSS_dpadambc_g{gamma_prime}_eps{epsilon}_d{delta}_ep{epochs}_lb{logical_batch_size}_lr{learning_rate}_C{max_grad_norm}_s{seed}
+```
+
 例如：
 
 ```text

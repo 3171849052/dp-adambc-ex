@@ -1,10 +1,19 @@
 #!/usr/bin/env bash
+
+# This launcher uses Bash features below, but users commonly invoke it as
+# ``sh run.sh``.  In that form the shebang is ignored and /bin/sh would abort
+# on Bash-only syntax before training can start.
+# qnli_roberta_base qnli_roberta_base_dpadambc
+if [ -z "${BASH_VERSION:-}" ]; then
+  exec bash "$0" "$@"
+fi
+
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 export DP_ADAM_IID_REPOSITORY_ROOT="$ROOT"
-DEFAULT_CONFIG="$ROOT/config/qnli_roberta_base.yaml"
+DEFAULT_CONFIG="$ROOT/config/qnli_roberta_base_dpadambc.yaml"
 
 if [[ $# -eq 0 ]]; then
   CONFIG="$DEFAULT_CONFIG"
@@ -53,7 +62,7 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
 fi
 
 printf -v COMMAND \
-  'cd %q && eval "$(conda shell.bash hook)" && conda activate curve && GPU=%q && set -o pipefail && CUDA_VISIBLE_DEVICES="$GPU" python -u scripts/train.py --config %q --run-dir %q 2>&1 | tee -a %q' \
+  'cd %q && eval "$(conda shell.bash hook)" && conda activate curve && export TOKENIZERS_PARALLELISM=false && export RAYON_NUM_THREADS=1 && export PYTHONFAULTHANDLER=1 && GPU=%q && set -o pipefail && CUDA_VISIBLE_DEVICES="$GPU" python -u scripts/train.py --config %q --run-dir %q 2>&1 | tee -a %q' \
   "$ROOT" "$GPU" "$CONFIG" "$RUN_DIR" "$TRAIN_LOG"
 tmux new-session -d -s "$SESSION" "$COMMAND"
 

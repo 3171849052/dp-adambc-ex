@@ -25,6 +25,8 @@ class TrainingResult:
     noise_multiplier: float
     epsilon: float
     sample_rate: float
+    expected_batch_size: int | None
+    phi: float | None
 
 
 def _log_epoch(
@@ -110,7 +112,13 @@ def train_model(
     # Ghost Clipping hooks. ``from_pretrained`` returns Transformers models in
     # eval mode, so set this explicitly before make_private().
     model.train()
+    print("initializing Opacus private training...", flush=True)
     private: PrivateTraining = make_private_training(model, train_loader, config)
+    print(
+        f"Opacus private training ready: "
+        f"noise_multiplier={private.noise_multiplier}",
+        flush=True,
+    )
     private_model = private.model
     private_optimizer = private.optimizer
     private_model.train()
@@ -219,4 +227,6 @@ def train_model(
         noise_multiplier=private.noise_multiplier,
         epsilon=final_epsilon,
         sample_rate=sample_rate,
+        expected_batch_size=private.expected_batch_size,
+        phi=private.phi,
     )

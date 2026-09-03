@@ -77,6 +77,10 @@ def _resolved_config(
     )
     resolved["privacy"]["epsilon_spent"] = None if result is None else result.epsilon
     resolved["privacy"]["sample_rate"] = None if result is None else result.sample_rate
+    resolved["privacy"]["expected_batch_size"] = (
+        None if result is None else result.expected_batch_size
+    )
+    resolved["privacy"]["phi"] = None if result is None else result.phi
     resolved["run"] = {"directory": str(paths.directory.resolve())}
     return resolved
 
@@ -102,6 +106,8 @@ def _summary(
         "epsilon": result.epsilon,
         "noise_multiplier": result.noise_multiplier,
         "sample_rate": result.sample_rate,
+        "expected_batch_size": result.expected_batch_size,
+        "phi": result.phi,
         "config": config.to_dict(),
     }
 
@@ -126,7 +132,6 @@ def prepare_run(config_file: str | Path) -> RunPaths:
 def run_experiment(config_file: str | Path, *, run_dir: str | Path | None = None) -> int:
     from dp_adam_iid.data import load_qnli
     from dp_adam_iid.model import build_model
-    from dp_adam_iid.trainer import train_model
 
     config_path = Path(config_file)
     source_yaml = config_path.read_text(encoding="utf-8")
@@ -151,8 +156,16 @@ def run_experiment(config_file: str | Path, *, run_dir: str | Path | None = None
         try:
             print(f"run_directory={paths.directory.resolve()}", flush=True)
             set_seed(config.seed)
+            print("loading QNLI data...", flush=True)
             data = load_qnli(config)
+            print(
+                f"QNLI data ready: train_examples={data.train_size} "
+                f"eval_examples={data.eval_size}",
+                flush=True,
+            )
+            print("loading RoBERTa MLM model...", flush=True)
             model = build_model(config, data.tokenizer)
+            print("RoBERTa MLM model ready", flush=True)
             print(
                 f"device={device} train_examples={data.train_size} "
                 f"eval_examples={data.eval_size} "
@@ -171,6 +184,13 @@ def run_experiment(config_file: str | Path, *, run_dir: str | Path | None = None
                     eval_size=data.eval_size,
                 ),
             )
+            print("starting private training initialization...", flush=True)
+            # Import Opacus/SciPy only after Hugging Face data and model setup.
+            # In the current curve environment, importing those native
+            # libraries before datasets/tokenizers can trigger SIGSEGV during
+            # QNLI loading.
+            from dp_adam_iid.trainer import train_model
+
             result = train_model(
                 config,
                 model,

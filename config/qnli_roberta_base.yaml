@@ -15,7 +15,7 @@ data:
   other_sent_limit: 200
   truncate_head: true
   logical_batch_size: 512
-  max_physical_batch_size: 32
+  max_physical_batch_size: 16
   eval_batch_size: 32
   max_train_samples: null
   max_eval_samples: null
@@ -23,7 +23,7 @@ data:
 training:
   epochs: 5
   max_steps: null
-  learning_rate: 1.0e-4
+  learning_rate: 5.0e-5
   optimizer: adam
   weight_decay: 0.0
   warmup_steps: 0
@@ -43,7 +43,7 @@ privacy:
 
 runtime:
   device: auto
-  gpu: 0
+  gpu: 1
   num_workers: 0
   pin_memory: true
 

@@ -142,6 +142,17 @@ class Config:
             raise ValueError("learning_rate must be positive")
         if self.training.optimizer.lower() not in {"adam", "dpadambc"}:
             raise ValueError("Only Adam and DPAdamBC optimizers are supported")
+        expected_optimizer = {
+            "dpadam": "adam",
+            "dpadambc": "dpadambc",
+        }.get(self.algorithm.lower())
+        if expected_optimizer is None:
+            raise ValueError("algorithm must be 'dpadam' or 'dpadambc'")
+        if self.training.optimizer.lower() != expected_optimizer:
+            raise ValueError(
+                f"algorithm '{self.algorithm}' requires training.optimizer "
+                f"to be '{expected_optimizer}'"
+            )
         if self.training.gamma_prime <= 0:
             raise ValueError("gamma_prime must be positive")
         if self.training.weight_decay != 0:

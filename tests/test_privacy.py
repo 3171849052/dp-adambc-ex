@@ -121,6 +121,8 @@ def test_dpadambc_opacus_ghost_and_batch_memory_manager_smoke():
     underlying = optimizer.original_optimizer
 
     assert isinstance(underlying, DPAdamBC)
+    assert private.expected_batch_size == optimizer.expected_batch_size
+    assert private.phi == underlying.phi
     assert underlying.expected_batch_size == optimizer.expected_batch_size
     assert underlying.phi == pytest.approx(
         (

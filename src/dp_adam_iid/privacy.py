@@ -29,6 +29,8 @@ class PrivateTraining:
     data_loader: DataLoader
     privacy_engine: PrivacyEngine
     hooks: Any | None
+    expected_batch_size: int | None
+    phi: float | None
 
     @property
     def noise_multiplier(self) -> float:
@@ -153,11 +155,16 @@ def make_private_training(
     )
 
     if isinstance(optimizer, DPAdamBC):
+        expected_batch_size = int(private_optimizer.expected_batch_size)
         optimizer.configure_dp(
             noise_multiplier=float(private_optimizer.noise_multiplier),
             max_grad_norm=float(private_optimizer.max_grad_norm),
-            expected_batch_size=int(private_optimizer.expected_batch_size),
+            expected_batch_size=expected_batch_size,
         )
+        phi = optimizer.phi
+    else:
+        expected_batch_size = None
+        phi = None
 
     if config.privacy.wrap_model:
         training_model = private_handle
@@ -175,4 +182,6 @@ def make_private_training(
         data_loader=private_loader,
         privacy_engine=privacy_engine,
         hooks=hooks,
+        expected_batch_size=expected_batch_size,
+        phi=phi,
     )

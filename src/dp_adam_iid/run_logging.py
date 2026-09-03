@@ -65,8 +65,14 @@ def format_run_name(config: Config, timestamp: datetime | None = None) -> str:
     """Return the documented run name for a parsed configuration."""
 
     stamp = timestamp or datetime.now()
+    gamma_prime = (
+        f"_g{_format_number(config.training.gamma_prime)}"
+        if config.algorithm.lower() == "dpadambc"
+        else ""
+    )
     return (
         f"{stamp:%Y%m%d-%H%M%S}_{config.algorithm}"
+        f"{gamma_prime}"
         f"_eps{_format_number(config.privacy.epsilon)}"
         f"_d{_format_number(config.privacy.delta)}"
         f"_ep{_format_number(config.training.epochs)}"

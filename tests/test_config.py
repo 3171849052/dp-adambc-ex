@@ -55,6 +55,33 @@ def test_dpadambc_config_loads_with_positive_gamma_prime():
         config.validate()
 
 
+@pytest.mark.parametrize(
+    ("algorithm", "optimizer"),
+    [("dpadam", "adam"), ("dpadambc", "dpadambc")],
+)
+def test_algorithm_and_optimizer_matching_pairs_are_valid(algorithm, optimizer):
+    config = load_config(PROJECT_ROOT / "config/qnli_roberta_base.yaml")
+    config.algorithm = algorithm
+    config.training.optimizer = optimizer
+
+    config.validate()
+
+
+@pytest.mark.parametrize(
+    ("algorithm", "optimizer"),
+    [("dpadam", "dpadambc"), ("dpadambc", "adam")],
+)
+def test_algorithm_and_optimizer_mismatched_pairs_are_rejected(
+    algorithm, optimizer
+):
+    config = load_config(PROJECT_ROOT / "config/qnli_roberta_base.yaml")
+    config.algorithm = algorithm
+    config.training.optimizer = optimizer
+
+    with pytest.raises(ValueError, match=r"algorithm .*training\.optimizer"):
+        config.validate()
+
+
 @pytest.mark.parametrize("field", ["max_length", "first_sent_limit", "other_sent_limit"])
 def test_config_rejects_nonpositive_prompt_lengths(field):
     raw = yaml.safe_load(

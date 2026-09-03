@@ -34,6 +34,16 @@ def test_run_name_has_exact_required_format(tmp_path):
     )
 
 
+def test_dpadambc_run_name_includes_gamma_prime_as_g(tmp_path):
+    config = _config(tmp_path)
+    config.algorithm = "dpadambc"
+    config.training.optimizer = "dpadambc"
+    config.training.gamma_prime = 1.0e-8
+    assert format_run_name(config, datetime(2026, 9, 2, 18, 5, 0)) == (
+        "20260902-180500_dpadambc_g1e-8_eps3_d1e-5_ep3_lb1024_lr1e-4_C1_s0"
+    )
+
+
 def test_run_name_changes_with_algorithm_and_parameters(tmp_path):
     config = _config(tmp_path)
     config.algorithm = "another_algorithm"

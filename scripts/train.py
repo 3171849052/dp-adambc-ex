@@ -1,10 +1,11 @@
 #!/usr/bin/env python
-"""Create a run directory and train RoBERTa on QNLI."""
+"""Create a run directory and train the configured QNLI model."""
 
 from __future__ import annotations
 
 import argparse
 from contextlib import nullcontext
+import importlib
 import json
 import os
 from pathlib import Path
@@ -13,13 +14,14 @@ import traceback
 from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-REPOSITORY_ROOT = Path(os.environ.get("DP_ADAM_IID_REPOSITORY_ROOT", PROJECT_ROOT))
+REPOSITORY_ROOT = Path(os.environ.get("DP_ADAMBC_EX_REPOSITORY_ROOT", PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 import torch  # noqa: E402
+import yaml  # noqa: E402
 
-from dp_adam_iid.config import Config, load_config  # noqa: E402
-from dp_adam_iid.run_logging import (  # noqa: E402
+from roberta_qnli.config import Config  # noqa: E402
+from roberta_qnli.run_logging import (  # noqa: E402
     FPCDiagnosticsCSVWriter,
     MetricsCSVWriter,
     RunPaths,
@@ -29,7 +31,7 @@ from dp_adam_iid.run_logging import (  # noqa: E402
     tee_output,
     write_run_metadata,
 )
-from dp_adam_iid.utils import (  # noqa: E402
+from roberta_qnli.utils import (  # noqa: E402
     resolve_device,
     set_seed,
     validate_gpu_selection,
@@ -37,6 +39,29 @@ from dp_adam_iid.utils import (  # noqa: E402
 
 
 DEFAULT_CONFIG = PROJECT_ROOT / "config/qnli_roberta_base.yaml"
+MODEL_PACKAGES = {
+    "FacebookAI/roberta-base": "roberta_qnli",
+    "bert-base-cased": "bert_qnli",
+}
+
+
+def _package_name_from_config(config_path: str | Path) -> str:
+    with Path(config_path).open("r", encoding="utf-8") as handle:
+        raw = yaml.safe_load(handle) or {}
+    model_name = (raw.get("model") or {}).get("name")
+    try:
+        return MODEL_PACKAGES[model_name]
+    except KeyError as error:
+        supported = ", ".join(sorted(MODEL_PACKAGES))
+        raise ValueError(
+            f"unsupported model.name {model_name!r}; expected one of: {supported}"
+        ) from error
+
+
+def _load_config(config_path: str | Path):
+    package_name = _package_name_from_config(config_path)
+    config_module = importlib.import_module(f"{package_name}.config")
+    return config_module.load_config(config_path)
 
 
 def _config_path(value: str | None) -> Path:
@@ -65,7 +90,7 @@ def _resolved_config(
         visible_index = 0 if visible_devices is not None else config.runtime.gpu
         try:
             gpu_name = torch.cuda.get_device_name(visible_index)
-        except (IndexError, RuntimeError):
+        except (AssertionError, IndexError, RuntimeError):
             gpu_name = None
     resolved["runtime"]["actual_device"] = str(device)
     resolved["runtime"]["physical_gpu_index"] = config.runtime.gpu
@@ -118,7 +143,7 @@ def prepare_run(config_file: str | Path) -> RunPaths:
 
     config_path = Path(config_file)
     source_yaml = config_path.read_text(encoding="utf-8")
-    config = load_config(config_path)
+    config = _load_config(config_path)
     device = resolve_device(config.runtime.device)
     paths = create_run_directory(config, root=_output_root(config))
     write_run_metadata(
@@ -133,12 +158,14 @@ def prepare_run(config_file: str | Path) -> RunPaths:
 
 
 def run_experiment(config_file: str | Path, *, run_dir: str | Path | None = None) -> int:
-    from dp_adam_iid.data import load_qnli
-    from dp_adam_iid.model import build_model
-
     config_path = Path(config_file)
+    package_name = _package_name_from_config(config_path)
+    data_module = importlib.import_module(f"{package_name}.data")
+    model_module = importlib.import_module(f"{package_name}.model")
+    load_qnli = data_module.load_qnli
+    build_model = model_module.build_model
     source_yaml = config_path.read_text(encoding="utf-8")
-    config = load_config(config_path)
+    config = _load_config(config_path)
     device = resolve_device(config.runtime.device)
     paths = (
         run_paths_from_directory(run_dir)
@@ -171,9 +198,15 @@ def run_experiment(config_file: str | Path, *, run_dir: str | Path | None = None
                 f"eval_examples={data.eval_size}",
                 flush=True,
             )
-            print("loading RoBERTa MLM model...", flush=True)
+            if package_name == "roberta_qnli":
+                print("loading RoBERTa MLM model...", flush=True)
+            else:
+                print("loading BERT classifier model...", flush=True)
             model = build_model(config, data.tokenizer)
-            print("RoBERTa MLM model ready", flush=True)
+            if package_name == "roberta_qnli":
+                print("RoBERTa MLM model ready", flush=True)
+            else:
+                print("BERT classifier model ready", flush=True)
             print(
                 f"device={device} train_examples={data.train_size} "
                 f"eval_examples={data.eval_size} "
@@ -194,10 +227,8 @@ def run_experiment(config_file: str | Path, *, run_dir: str | Path | None = None
             )
             print("starting private training initialization...", flush=True)
             # Import Opacus/SciPy only after Hugging Face data and model setup.
-            # In the current curve environment, importing those native
-            # libraries before datasets/tokenizers can trigger SIGSEGV during
-            # QNLI loading.
-            from dp_adam_iid.trainer import train_model
+            trainer_module = importlib.import_module(f"{package_name}.trainer")
+            train_model = trainer_module.train_model
 
             result = train_model(
                 config,
@@ -292,7 +323,7 @@ def main() -> int:
     config_path = _config_path(args.config_option or args.config)
     if args.print_gpu or args.validate_gpu:
         try:
-            config = load_config(config_path)
+            config = _load_config(config_path)
             if args.validate_gpu:
                 validate_gpu_selection(config.runtime.gpu)
             print(config.runtime.gpu)

@@ -1,18 +1,45 @@
+import re
+
 import pytest
 import torch
-from transformers import AutoTokenizer, RobertaConfig, RobertaForMaskedLM
+from transformers import RobertaConfig, RobertaForMaskedLM
 
-from dp_adam_iid.data import (
+from roberta_qnli.data import (
     QNLI_VERBALIZER,
     build_qnli_input_ids,
     qnli_verbalizer_token_ids,
     tokenize_qnli_batch,
 )
-from dp_adam_iid.model import RobertaPromptForQNLI
+from roberta_qnli.model import RobertaPromptForQNLI
 
 
-def test_qnli_bedb_verbalizer_uses_single_roberta_tokens_in_label_order():
-    tokenizer = AutoTokenizer.from_pretrained("FacebookAI/roberta-base")
+class LocalPromptTokenizer:
+    cls_token_id = 0
+    mask_token_id = 1
+    sep_token_id = 2
+
+    def __init__(self):
+        self._token_ids = {}
+        self._next_id = 3
+
+    def encode(self, text, add_special_tokens=False):
+        assert add_special_tokens is False
+        tokens = re.findall(r"[A-Za-z]+|[^A-Za-z\s]", text)
+        ids = []
+        for token in tokens:
+            if token not in self._token_ids:
+                self._token_ids[token] = self._next_id
+                self._next_id += 1
+            ids.append(self._token_ids[token])
+        return ids
+
+
+@pytest.fixture
+def tokenizer():
+    return LocalPromptTokenizer()
+
+
+def test_qnli_bedb_verbalizer_uses_single_roberta_tokens_in_label_order(tokenizer):
 
     assert QNLI_VERBALIZER[0] == " yes"
     assert QNLI_VERBALIZER[1] == " no"
@@ -21,8 +48,7 @@ def test_qnli_bedb_verbalizer_uses_single_roberta_tokens_in_label_order():
     assert [no_token_id] == tokenizer.encode(" no", add_special_tokens=False)
 
 
-def test_qnli_prompt_matches_bedb_token_ids_exactly():
-    tokenizer = AutoTokenizer.from_pretrained("FacebookAI/roberta-base")
+def test_qnli_prompt_matches_bedb_token_ids_exactly(tokenizer):
 
     actual_input_ids = build_qnli_input_ids(
         tokenizer,
@@ -61,8 +87,7 @@ def test_qnli_prompt_matches_bedb_token_ids_exactly():
     assert encoded["input_ids"][0] == expected_input_ids
 
 
-def test_qnli_template_always_drops_last_question_char_and_lowercases_sentence():
-    tokenizer = AutoTokenizer.from_pretrained("FacebookAI/roberta-base")
+def test_qnli_template_always_drops_last_question_char_and_lowercases_sentence(tokenizer):
 
     actual_input_ids = build_qnli_input_ids(
         tokenizer,
@@ -85,8 +110,7 @@ def test_qnli_template_always_drops_last_question_char_and_lowercases_sentence()
     assert actual_input_ids == expected_input_ids
 
 
-def test_qnli_sentence_limits_are_applied_before_template_truncation():
-    tokenizer = AutoTokenizer.from_pretrained("FacebookAI/roberta-base")
+def test_qnli_sentence_limits_are_applied_before_template_truncation(tokenizer):
     question = "Who wrote the very long book about differential privacy?"
     sentence = "Ada wrote the very long book about differential privacy."
     first_sent_limit = 3
@@ -118,8 +142,7 @@ def test_qnli_sentence_limits_are_applied_before_template_truncation():
     assert encoded["input_ids"][0] == expected_input_ids
 
 
-def test_truncate_head_matches_bedb_after_sentence_limits():
-    tokenizer = AutoTokenizer.from_pretrained("FacebookAI/roberta-base")
+def test_truncate_head_matches_bedb_after_sentence_limits(tokenizer):
     question = "Who wrote the very long book about differential privacy?"
     sentence = "Ada wrote the very long book about differential privacy."
     first_sent_limit = 8
@@ -160,8 +183,7 @@ def test_truncate_head_matches_bedb_after_sentence_limits():
     assert encoded["mask_pos"][0] == input_ids.index(tokenizer.mask_token_id)
 
 
-def test_truncation_reports_when_bedb_removes_the_mask():
-    tokenizer = AutoTokenizer.from_pretrained("FacebookAI/roberta-base")
+def test_truncation_reports_when_bedb_removes_the_mask(tokenizer):
 
     with pytest.raises(ValueError, match="mask"):
         tokenize_qnli_batch(
@@ -175,8 +197,7 @@ def test_truncation_reports_when_bedb_removes_the_mask():
         )
 
 
-def test_prompt_has_one_mask_and_records_its_actual_position():
-    tokenizer = AutoTokenizer.from_pretrained("FacebookAI/roberta-base")
+def test_prompt_has_one_mask_and_records_its_actual_position(tokenizer):
     questions = ["Who wrote the book?", "Where is Chengdu"]
     sentences = ["Ada wrote the book.", "Chengdu is in Sichuan."]
 
@@ -190,8 +211,7 @@ def test_prompt_has_one_mask_and_records_its_actual_position():
         assert mask_pos == input_ids.index(tokenizer.mask_token_id)
 
 
-def test_truncation_preserves_qnli_template_structure():
-    tokenizer = AutoTokenizer.from_pretrained("FacebookAI/roberta-base")
+def test_truncation_preserves_qnli_template_structure(tokenizer):
     encoded = tokenize_qnli_batch(
         tokenizer,
         ["Who wrote the very long book about differential privacy?"],

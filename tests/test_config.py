@@ -4,7 +4,7 @@ import pytest
 
 import yaml
 
-from dp_adam_iid.config import Config, load_config
+from roberta_qnli.config import Config, load_config
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -21,14 +21,14 @@ def test_default_config_contains_requested_experiment_defaults():
     assert config.data.other_sent_limit == 200
     assert config.data.truncate_head is True
     assert config.training.epochs == 5
-    assert config.training.learning_rate == 5.0e-5
-    assert config.privacy.epsilon == 3.0
+    assert config.training.learning_rate == 1.0e-4
+    assert config.privacy.epsilon == 1.0
     assert config.privacy.delta == 1.0e-5
     assert config.privacy.max_grad_norm == 1.0
     assert config.privacy.accountant == "gdp"
     assert config.privacy.grad_sample_mode == "ghost"
     assert config.output.root == "outputs"
-    assert config.runtime.gpu == 1
+    assert config.runtime.gpu == 2
 
 
 def test_config_rejects_non_adam_or_non_gdp_choices():
@@ -61,7 +61,7 @@ def test_fpcdpadam_config_loads_with_requested_settings():
     assert config.algorithm == "fpcdpadam"
     assert config.training.optimizer == "fpcdpadam"
     assert config.training.gamma_prime == pytest.approx(1.0e-7)
-    assert config.training.fpc_lambda == pytest.approx(0.5)
+    assert config.training.fpc_lambda == pytest.approx(0.1)
     assert config.training.fpc_mode == "current"
     assert config.training.fpc_delay_q0 == pytest.approx(1.0)
 

@@ -121,7 +121,7 @@ def format_tmux_session_name(directory: str | Path) -> str:
     run_name = Path(directory).name
     if not run_name:
         raise ValueError("run directory must have a name")
-    session = f"dp_adam_iid_{run_name}"
+    session = f"dp_adambc_ex_{run_name}"
     return re.sub(r"[^A-Za-z0-9_-]", "_", session)
 
 

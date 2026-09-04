@@ -1,7 +1,7 @@
 from datetime import datetime
 
-from dp_adam_iid.config import Config
-from dp_adam_iid.run_logging import (
+from roberta_qnli.config import Config
+from roberta_qnli.run_logging import (
     create_run_directory,
     format_run_name,
     format_tmux_session_name,
@@ -95,7 +95,7 @@ def test_same_second_collision_advances_timestamp_without_suffix(tmp_path):
 def test_tmux_session_name_is_deterministic_and_tmux_safe():
     assert format_tmux_session_name(
         "/tmp/20260902-180500_dpadam_eps3_d1e-5_ep3_lb1024_lr1e-4_C1_s0"
-    ) == "dp_adam_iid_20260902-180500_dpadam_eps3_d1e-5_ep3_lb1024_lr1e-4_C1_s0"
+    ) == "dp_adambc_ex_20260902-180500_dpadam_eps3_d1e-5_ep3_lb1024_lr1e-4_C1_s0"
     assert format_tmux_session_name("/tmp/run.name:with spaces") == (
-        "dp_adam_iid_run_name_with_spaces"
+        "dp_adambc_ex_run_name_with_spaces"
     )

@@ -3,10 +3,10 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "dp-adam-iid"
+name = "dp-adambc-ex"
 version = "0.1.0"
-description = "A small reproducible PyTorch + Opacus GDP training experiment on GLUE QNLI."
-requires-python = ">=3.10"
+description = "Reproducible BERT-base and RoBERTa-base QNLI experiments with Opacus GDP training."
+requires-python = ">=3.11"
 dependencies = [
     "torch>=2.0",
     "transformers>=4.35",
@@ -14,10 +14,13 @@ dependencies = [
     "opacus>=1.4",
     "PyYAML>=6.0",
     "tqdm>=4.66",
+    "scipy",
+    "packaging",
 ]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["roberta_qnli*", "bert_qnli*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

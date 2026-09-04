@@ -1,0 +1,55 @@
+algorithm: fpcdpadam
+seed: 0
+
+model:
+  name: bert-base-cased
+  num_labels: 2
+
+data:
+  dataset_name: glue
+  dataset_config: qnli
+  train_split: train
+  eval_split: validation
+  max_length: 256
+  logical_batch_size: 512
+  max_physical_batch_size: 16
+  eval_batch_size: 32
+  max_train_samples: null
+  max_eval_samples: null
+
+training:
+  epochs: 5
+  max_steps: null
+  learning_rate: 5.0e-5
+  optimizer: fpcdpadam
+  gamma_prime: 1.0e-7
+  fpc_lambda: 0.1
+  fpc_mode: current
+  fpc_delay_q0: 1.0
+  weight_decay: 0.0
+  warmup_steps: 0
+  scheduler: none
+
+privacy:
+  epsilon: 3.0
+  delta: 1.0e-5
+  accountant: gdp
+  noise_type: iid_gaussian
+  max_grad_norm: 1.0
+  clipping: flat
+  grad_sample_mode: ghost
+  poisson_sampling: true
+  loss_reduction: mean
+  wrap_model: false
+
+runtime:
+  device: auto
+  gpu: 1
+  num_workers: 0
+  pin_memory: true
+
+output:
+  root: outputs
+
+logging:
+  log_every_steps: 1

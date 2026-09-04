@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from dp_adam_iid.utils import resolve_device, validate_gpu_selection
+from roberta_qnli.utils import resolve_device, validate_gpu_selection
 
 
 def test_cuda_resolution_always_uses_process_local_cuda_zero(monkeypatch):

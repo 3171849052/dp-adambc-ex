@@ -7,17 +7,17 @@ import pytest
 from torch.utils.data import DataLoader, Dataset
 from transformers import RobertaConfig, RobertaForMaskedLM
 
-from dp_adam_iid.config import Config
-from dp_adam_iid.model import RobertaPromptForQNLI
+from roberta_qnli.config import Config
+from roberta_qnli.model import RobertaPromptForQNLI
 from opacus import PrivacyEngine
-from dp_adam_iid.run_logging import (
+from roberta_qnli.run_logging import (
     FPCDiagnosticsCSVWriter,
     MetricsCSVWriter,
     create_run_directory,
     tee_output,
     write_run_metadata,
 )
-from dp_adam_iid.trainer import train_model
+from roberta_qnli.trainer import train_model
 
 
 class TinyDataset(Dataset):

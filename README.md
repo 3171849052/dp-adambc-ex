@@ -1,152 +1,60 @@
-# dp-adam-iid
+# dp-adambc-ex
 
-一个简洁、可复现的 PyTorch + Opacus 差分隐私 QNLI 实验。模型是
-`FacebookAI/roberta-base` 的 prompt-based text-infilling 模型，使用预训练 MLM
-head 在 `<mask>` 位置抽取 `yes` / `no` logits；数据使用 GLUE/QNLI，优化器是纯
-`torch.optim.Adam`，并对完整模型进行 DP fine-tuning。
+本仓库提供两套 PyTorch + Opacus 的 GLUE/QNLI 差分隐私实验：
 
-本项目不包含 JAX、`jax_privacy`、BandInvMF、Toeplitz、相关噪声或相关实现，
-也不修改 `curve` 环境中的第三方包。
+- `roberta_qnli`：`FacebookAI/roberta-base` 的既有 prompt/MLM yes-no verbalizer 实验。
+- `bert_qnli`：`bert-base-cased` 标准 sequence-pair classification。冻结 encoder
+  0-10，仅训练并按官方 DP-AdamBC `train_from_scratch` 逻辑重新初始化 encoder
+  11、pooler 和 classifier。
 
-## 环境与运行
+两套实验都保留本项目的 IID Gaussian DP 机制：`delta=1e-5`、GDP accountant、
+Opacus Ghost Clipping、global flat clipping、Poisson sampling，以及
+`make_private_with_epsilon()`。训练用 logical batch 和
+`BatchMemoryManager` 拆分 physical batch；每个 logical batch 只产生一次噪声和
+一次真正的 Adam 更新。支持的算法仅为 `dpadam`、`dpadambc` 和
+`fpcdpadam`。
 
-在仓库根目录使用现有的 `curve` conda 环境、通过 tmux 后台启动：
+## 环境
+
+建议使用 Python 3.11 的独立 Conda 环境 `adamex`。CUDA 12.8 版 PyTorch 从官方
+wheel 源安装，其余依赖使用清华 PyPI 镜像：
 
 ```bash
-./run.sh
+conda create -n adamex python=3.11
+conda activate adamex
+python -m pip install torch --index-url https://download.pytorch.org/whl/cu128
+python -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
 ```
 
-也可以显式指定配置：
+## 运行
+
+统一入口根据 YAML 中的 `model.name` 自动选择实现，不需要模型专用脚本：
 
 ```bash
 ./run.sh config/qnli_roberta_base.yaml
-./run.sh --config config/qnli_roberta_base.yaml
+./run.sh config/qnli_roberta_base_dpadambc.yaml
+./run.sh config/qnli_roberta_base_fpcdpadam.yaml
+
+./run.sh config/qnli_bert_base.yaml
+./run.sh config/qnli_bert_base_dpadambc.yaml
+./run.sh config/qnli_bert_base_fpcdpadam.yaml
+./run.sh config/qnli_bert_base_smoke.yaml
 ```
 
-启动脚本先调用 Python 的通用 run-management 逻辑创建唯一的 run directory，
-再创建同名唯一 tmux session。训练在 tmux 内激活 `curve` 环境，以 `python -u`
-运行，并通过 `tee -a` 将 stdout/stderr 写入该 run 的 `train.log`。启动后会打印：
+`runtime.gpu` 选择物理 GPU；启动器将它映射为训练进程内的 `cuda:0`，并在
+tmux 中后台运行。每次运行在 `outputs/` 下写入配置快照、resolved config、
+`metrics.csv`、`summary.json` 和 `train.log`，不保存 checkpoint。
 
-```text
-attach: tmux attach -t <session>
-tail: tail -f <run_dir>/train.log
-kill: tmux kill-session -t <session>
-```
-
-如果 tmux session 已存在，启动会明确报错且不会覆盖已有 session。
-
-GPU 通过 YAML 的 `runtime.gpu` 选择物理 GPU，不需要修改 `run.sh`：
-
-```yaml
-runtime:
-  device: auto
-  gpu: 0
-```
-
-例如 `gpu: 2` 会在 tmux 进程中设置
-`CUDA_VISIBLE_DEVICES=2`；因此训练进程内部统一使用 `cuda:0`。启动前会检查
-CUDA 是否可用以及物理 GPU 序号是否有效。run directory 的命名不包含 GPU 序号。
-
-当前环境已经提供项目依赖。若需要将项目安装为 editable package，可在不解析
-依赖的情况下执行：
+## 测试
 
 ```bash
-python -m pip install -e . --no-deps
-```
-
-## 训练机制
-
-每个 logical batch 内，Opacus Ghost Clipping 先对每个样本求梯度并计算整个
-模型梯度的 global L2 norm，然后执行 per-sample global flat clipping。裁剪后
-聚合一个 logical batch 的梯度；在该 logical optimizer step 中加入一次 IID
-Gaussian noise；再把 private gradient 交给 Adam。因此每个 logical step 只有
-一次真正的 Adam 参数更新。
-
-- `logical_batch_size`：隐私会计和优化器更新所对应的 batch 大小；默认 1024。
-- `max_physical_batch_size`：显存中一次 forward/backward 的上限；默认 8，
-  由 `BatchMemoryManager` 拆分 logical batch，支持 RTX 3080。
-  如需较小的 logical batch，可把配置中的 `logical_batch_size` 改为 512，
-  并独立调整这个 physical 上限。
-- Ghost Clipping：Opacus 官方的 per-sample gradient clipping backend，不是
-  项目自行实现。
-- GDP accountant：使用 `PrivacyEngine(accountant="gdp")`。
-- IID Gaussian noise：每个 logical optimizer step 由 Opacus 向聚合裁剪梯度
-  添加一次独立同分布 Gaussian noise。
-- fixed learning rate：Adam 的 learning rate 全程固定为 `1e-4`，无 warmup、
-  scheduler、decay 或 weight decay。
-
-训练使用 Poisson sampling，并通过
-`make_private_with_epsilon()` 根据 `epsilon`、`delta`、`epochs` 和采样率自动
-求 `noise_multiplier`。默认配置为：`epsilon=3.0`、`delta=1e-5`、
-`max_grad_norm=1.0`、`epochs=3`、`max_length=128`。训练过程中使用 tqdm 显示
-epoch 内的 logical DP optimizer steps 和 running loss；验证阶段按普通 eval batch
-显示 `Evaluating` 进度。进度条只在真正的 logical optimizer update 后更新，不把
-`BatchMemoryManager` 的 physical batches 当作训练 step。每个 epoch 结束后才评估、
-查询累计 epsilon，并向 `metrics.csv` 写一行；最终结果写入 `summary.json`。
-
-## 输出目录与文件
-
-每次运行都会在 `outputs/` 下创建唯一目录，目录名为：
-
-```text
-YYYYMMDD-HHMMSS_{algorithm}_eps{epsilon}_d{delta}_ep{epochs}_lb{logical_batch_size}_lr{learning_rate}_C{max_grad_norm}_s{seed}
-```
-
-对于 `dpadambc`，算法名后还会追加
-`_g{gamma_prime}`，其中 `g` 表示 `gamma_prime`：
-
-```text
-YYYYMMDD-HHMMSS_dpadambc_g{gamma_prime}_eps{epsilon}_d{delta}_ep{epochs}_lb{logical_batch_size}_lr{learning_rate}_C{max_grad_norm}_s{seed}
-```
-
-对于 `fpcdpadam`，算法名后还会追加
-`_g{gamma_prime}_l{fpc_lambda}`，其中 `g` 表示 `gamma_prime`，`l` 表示
-`fpc_lambda`：
-
-```text
-YYYYMMDD-HHMMSS_fpcdpadam_g{gamma_prime}_l{fpc_lambda}_eps{epsilon}_d{delta}_ep{epochs}_lb{logical_batch_size}_lr{learning_rate}_C{max_grad_norm}_s{seed}
-```
-
-例如：
-
-```text
-outputs/20260902-180500_dpadam_eps3_d1e-5_ep3_lb1024_lr1e-4_C1_s0/
-```
-
-数值采用统一格式（例如 `3.0` 写成 `3`、`1.0` 写成 `1`）；不使用配置 hash。
-如果同一秒创建目录发生冲突，时间戳秒数会递增。配置中的算法通过顶层
-`algorithm` 字段声明，目录管理逻辑与算法无关。
-
-每个运行目录包含：
-
-- `config.yaml`：原始 YAML 配置快照；
-- `resolved_config.yaml`：完整配置、实际 device、数据集大小、sample rate、
-  noise multiplier 等运行时派生参数；
-- `metrics.csv`：每个 epoch 一行的训练、验证和隐私指标；
-- `summary.json`：最终结果和关键参数；
-- `train.log`：完整终端日志。
-
-run directory 不保存 checkpoint 或其他模型权重。
-
-当前 `curve` 中的 Opacus 1.6.0 在 GDP 校准二分搜索的一个中间 sigma 上存在
-数值 bracket 边界问题；项目只临时扩大 Opacus 已有 GDP 根求解区间，公式、
-Ghost Clipping、噪声生成和 accountant 仍全部来自 Opacus 官方实现。
-
-第一版使用 FP32，不使用 AMP、LoRA、adaptive/per-layer clipping 或 Hugging Face
-Trainer。
-
-## Smoke test
-
-下面的配置仍使用真实 RoBERTa 和 QNLI，但只取少量样本和两个 logical steps，
-会覆盖数据加载、forward/backward、Ghost Clipping、GDP、IID DP step、评估和
-结果文件写入：
-
-```bash
-./run.sh config/qnli_roberta_base_smoke.yaml
-```
-
-单元测试：
-
-```bash
+conda activate adamex
 pytest -q
+./run.sh config/qnli_bert_base_smoke.yaml
 ```
+
+BERT 的 `max_length`、batch、学习率、隐私预算及 FPC 参数全部从对应 YAML
+读取。DP-AdamBC 继续使用本项目的
+`phi = (noise_multiplier * max_grad_norm / expected_batch_size)^2` 与
+`v_hat - phi` 修正，不复制官方仓库旧版 AdamCorr 或其 privacy accounting。

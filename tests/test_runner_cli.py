@@ -9,8 +9,8 @@ import yaml
 
 import torch
 
-from dp_adam_iid.config import load_config
-from dp_adam_iid.trainer import TrainingResult
+from roberta_qnli.config import load_config
+from roberta_qnli.trainer import TrainingResult
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -126,7 +126,7 @@ def test_launcher_exports_stable_tokenizer_environment_in_tmux_command():
     assert "export TOKENIZERS_PARALLELISM=false" in launcher
     assert "export RAYON_NUM_THREADS=1" in launcher
     assert "export PYTHONFAULTHANDLER=1" in launcher
-    assert "conda activate curve && export TOKENIZERS_PARALLELISM=false" in launcher
+    assert "conda activate adamex && export TOKENIZERS_PARALLELISM=false" in launcher
     assert "export OMP_NUM_THREADS=1" not in launcher
     assert "export MKL_NUM_THREADS=1" not in launcher
 
@@ -144,7 +144,7 @@ def test_runner_emits_startup_phase_logs_in_order():
     positions = [runner.index(marker) for marker in markers]
     assert positions == sorted(positions)
 
-    trainer = (PROJECT_ROOT / "src/dp_adam_iid/trainer.py").read_text(
+    trainer = (PROJECT_ROOT / "src/roberta_qnli/trainer.py").read_text(
         encoding="utf-8"
     )
     assert 'print("initializing Opacus private training...", flush=True)' in trainer

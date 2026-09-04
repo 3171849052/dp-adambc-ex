@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from dp_adam_iid.optim import DPAdamBC, FPCDPAdam
+from roberta_qnli.optim import DPAdamBC, FPCDPAdam
 
 
 def test_dpadambc_matches_hand_computed_moments_and_updates_for_two_steps():

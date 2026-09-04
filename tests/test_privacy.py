@@ -7,9 +7,9 @@ from opacus.utils.batch_memory_manager import BatchMemoryManager
 from torch import nn
 from torch.utils.data import DataLoader, Dataset, Subset
 
-from dp_adam_iid.config import Config
-from dp_adam_iid.optim import DPAdamBC, FPCDPAdam
-from dp_adam_iid.privacy import make_private_training
+from roberta_qnli.config import Config
+from roberta_qnli.optim import DPAdamBC, FPCDPAdam
+from roberta_qnli.privacy import cleanup_private_hooks, make_private_training
 
 
 class TinyDataset(Dataset):
@@ -82,7 +82,7 @@ def test_opacus_gdp_ghost_uses_adam_and_one_logical_step():
 
     assert logical_steps == len(private_loader)
     assert engine.get_epsilon(1.0e-5) > 0
-    hooks.cleanup()
+    cleanup_private_hooks(hooks)
 
 
 def test_unsupported_optimizer_does_not_fall_back_to_fpcdpadam():
@@ -171,7 +171,7 @@ def test_dpadambc_opacus_ghost_and_batch_memory_manager_smoke():
                 if not optimizer._is_last_step_skipped:
                     logical_steps += 1
     finally:
-        private.hooks.cleanup()
+        cleanup_private_hooks(private.hooks)
 
     assert logical_steps >= 1
     assert any(state["step"] >= 1 for state in underlying.state.values())
@@ -221,7 +221,7 @@ def test_privacy_wires_opacus_parameters_into_fpcdpadam():
         assert underlying.expected_batch_size == private.optimizer.expected_batch_size
         assert private.phi == pytest.approx(underlying.phi)
     finally:
-        private.hooks.cleanup()
+        cleanup_private_hooks(private.hooks)
 
 
 def _manual_clipped_gradient_sum(model, examples, *, max_grad_norm):
@@ -331,7 +331,7 @@ def test_fpc_ghost_extracts_clipped_pre_noise_scaled_logical_gradient():
                     )
                 optimizer.zero_grad()
     finally:
-        hooks.cleanup()
+        cleanup_private_hooks(hooks)
 
     assert physical_steps == 2
     assert logical_steps == 1

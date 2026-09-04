@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from .config import Config
-from .privacy import PrivateTraining, make_private_training
+from .privacy import PrivateTraining, cleanup_private_hooks, make_private_training
 from .optim import FPCDPAdam
 from .run_logging import FPCDiagnosticsCSVWriter, MetricsCSVWriter
 
@@ -248,8 +248,7 @@ def train_model(
                 break
 
     finally:
-        if private.hooks is not None:
-            private.hooks.cleanup()
+        cleanup_private_hooks(private.hooks)
 
     return TrainingResult(
         global_step=global_step,

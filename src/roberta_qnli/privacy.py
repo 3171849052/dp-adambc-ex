@@ -114,6 +114,22 @@ def _make_private_with_epsilon(
             return privacy_engine.make_private_with_epsilon(**kwargs)
 
 
+def cleanup_private_hooks(hooks: Any | None) -> None:
+    """Remove Opacus Ghost hooks across supported Opacus return types."""
+
+    if hooks is None:
+        return
+    cleanup = getattr(hooks, "cleanup", None)
+    if callable(cleanup):
+        cleanup()
+        return
+    remove_hooks = getattr(hooks, "remove_hooks", None)
+    if callable(remove_hooks):
+        remove_hooks()
+        return
+    raise TypeError(f"Unsupported Opacus hook handle: {type(hooks).__name__}")
+
+
 def make_private_training(
     model: nn.Module,
     train_loader: DataLoader,

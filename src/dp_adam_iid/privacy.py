@@ -141,7 +141,7 @@ def make_private_training(
             gamma_prime=config.training.gamma_prime,
             weight_decay=config.training.weight_decay,
         )
-    else:
+    elif optimizer_name == "fpcdpadam":
         optimizer = FPCDPAdam(
             model.parameters(),
             lr=config.training.learning_rate,
@@ -151,6 +151,8 @@ def make_private_training(
             fpc_delay_q0=config.training.fpc_delay_q0,
             weight_decay=config.training.weight_decay,
         )
+    else:
+        raise ValueError(f"Unsupported optimizer: {optimizer_name}")
     criterion = nn.CrossEntropyLoss(reduction=config.privacy.loss_reduction)
     privacy_engine = PrivacyEngine(accountant=config.privacy.accountant)
 

@@ -165,12 +165,13 @@ class Config:
             )
         if self.training.gamma_prime <= 0:
             raise ValueError("gamma_prime must be positive")
-        if not 0 <= self.training.fpc_lambda <= 1:
-            raise ValueError("fpc_lambda must be between 0 and 1")
-        if self.training.fpc_mode not in {"current", "delay"}:
-            raise ValueError("fpc_mode must be 'current' or 'delay'")
-        if self.training.fpc_delay_q0 <= 0:
-            raise ValueError("fpc_delay_q0 must be positive")
+        if expected_optimizer == "fpcdpadam":
+            if not 0 <= self.training.fpc_lambda <= 1:
+                raise ValueError("fpc_lambda must be between 0 and 1")
+            if self.training.fpc_mode not in {"current", "delay"}:
+                raise ValueError("fpc_mode must be 'current' or 'delay'")
+            if self.training.fpc_delay_q0 <= 0:
+                raise ValueError("fpc_delay_q0 must be positive")
         if self.training.weight_decay != 0:
             raise ValueError("weight_decay is intentionally disabled")
         if self.training.warmup_steps != 0:

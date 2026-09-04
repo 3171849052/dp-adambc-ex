@@ -3,7 +3,7 @@
 # This launcher uses Bash features below, but users commonly invoke it as
 # ``sh run.sh``.  In that form the shebang is ignored and /bin/sh would abort
 # on Bash-only syntax before training can start.
-# qnli_roberta_base qnli_roberta_base_dpadambc
+# qnli_roberta_base qnli_roberta_base_dpadambc qnli_roberta_base_fpcdpadam
 if [ -z "${BASH_VERSION:-}" ]; then
   exec bash "$0" "$@"
 fi

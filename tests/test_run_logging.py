@@ -44,6 +44,17 @@ def test_dpadambc_run_name_includes_gamma_prime_as_g(tmp_path):
     )
 
 
+def test_fpcdpadam_run_name_includes_gamma_prime_as_g_and_lambda_as_l(tmp_path):
+    config = _config(tmp_path)
+    config.algorithm = "fpcdpadam"
+    config.training.optimizer = "fpcdpadam"
+    config.training.gamma_prime = 1.0e-7
+    config.training.fpc_lambda = 0.5
+    assert format_run_name(config, datetime(2026, 9, 2, 18, 5, 0)) == (
+        "20260902-180500_fpcdpadam_g1e-7_l0.5_eps3_d1e-5_ep3_lb1024_lr1e-4_C1_s0"
+    )
+
+
 def test_run_name_changes_with_algorithm_and_parameters(tmp_path):
     config = _config(tmp_path)
     config.algorithm = "another_algorithm"

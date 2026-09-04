@@ -99,6 +99,14 @@ YYYYMMDD-HHMMSS_{algorithm}_eps{epsilon}_d{delta}_ep{epochs}_lb{logical_batch_si
 YYYYMMDD-HHMMSS_dpadambc_g{gamma_prime}_eps{epsilon}_d{delta}_ep{epochs}_lb{logical_batch_size}_lr{learning_rate}_C{max_grad_norm}_s{seed}
 ```
 
+对于 `fpcdpadam`，算法名后还会追加
+`_g{gamma_prime}_l{fpc_lambda}`，其中 `g` 表示 `gamma_prime`，`l` 表示
+`fpc_lambda`：
+
+```text
+YYYYMMDD-HHMMSS_fpcdpadam_g{gamma_prime}_l{fpc_lambda}_eps{epsilon}_d{delta}_ep{epochs}_lb{logical_batch_size}_lr{learning_rate}_C{max_grad_norm}_s{seed}
+```
+
 例如：
 
 ```text

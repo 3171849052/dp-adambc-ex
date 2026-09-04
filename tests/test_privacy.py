@@ -85,6 +85,23 @@ def test_opacus_gdp_ghost_uses_adam_and_one_logical_step():
     hooks.cleanup()
 
 
+def test_unsupported_optimizer_does_not_fall_back_to_fpcdpadam():
+    config = Config.from_dict(
+        {
+            "algorithm": "dpadam",
+            "model": {"name": "test"},
+            "data": {"logical_batch_size": 4, "max_physical_batch_size": 2},
+            "training": {"optimizer": "adam"},
+        }
+    )
+    config.training.optimizer = "not-an-optimizer"
+
+    with pytest.raises(ValueError, match="Unsupported optimizer: not-an-optimizer"):
+        make_private_training(
+            TinyClassifier(), DataLoader(TinyDataset(), batch_size=4), config
+        )
+
+
 def test_dpadambc_opacus_ghost_and_batch_memory_manager_smoke():
     torch.manual_seed(0)
     config = Config.from_dict(

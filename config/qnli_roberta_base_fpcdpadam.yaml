@@ -23,10 +23,10 @@ data:
 training:
   epochs: 5
   max_steps: null
-  learning_rate: 1.0e-4
+  learning_rate: 5.0e-5
   optimizer: fpcdpadam
   gamma_prime: 1.0e-7
-  fpc_lambda: 0.5
+  fpc_lambda: 0.1
   fpc_mode: current
   fpc_delay_q0: 1.0
   weight_decay: 0.0
@@ -47,7 +47,7 @@ privacy:
 
 runtime:
   device: auto
-  gpu: 0
+  gpu: 1
   num_workers: 0
   pin_memory: true
 

@@ -84,6 +84,18 @@ def test_fpc_config_rejects_invalid_parameters(field, value):
         config.validate()
 
 
+@pytest.mark.parametrize("algorithm", ["dpadam", "dpadambc"])
+def test_non_fpc_config_ignores_invalid_fpc_parameters(algorithm):
+    config = load_config(PROJECT_ROOT / "config/qnli_roberta_base.yaml")
+    config.algorithm = algorithm
+    config.training.optimizer = "adam" if algorithm == "dpadam" else "dpadambc"
+    config.training.fpc_lambda = -1.0
+    config.training.fpc_mode = "invalid"
+    config.training.fpc_delay_q0 = 0.0
+
+    config.validate()
+
+
 @pytest.mark.parametrize(
     ("algorithm", "optimizer"),
     [

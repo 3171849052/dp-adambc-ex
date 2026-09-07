@@ -34,9 +34,10 @@ conda activate curve
 python -m pytest exp1/tests -q
 ```
 
-结果：`7 passed`。测试覆盖 lambda=1 与 DP-AdamBC 校正等价、clean/shadow
+结果：`8 passed`。测试覆盖 lambda=1 与 DP-AdamBC 校正等价、clean/shadow
 不改变 FPC 参数更新、跨参数 tensor 的全局 float64 累计、clamp 前 NRMSE、
-logical-step gate、空 batch 不写行，以及 CSV 有限值约束。
+logical-step gate、空 batch 不写行、CSV 有限值约束，以及 runner 的重型 import
+延迟到 QNLI/BERT 初始化之后。
 
 3-step synthetic mechanism smoke（不下载数据、不改变固定训练配置的诊断公式）：
 
@@ -55,11 +56,11 @@ conda activate curve
 python -X faulthandler -u exp1/run_exp1.py --config exp1/config_p0.yaml --device cpu --max-steps 3 --max-train-samples 1024 --max-eval-samples 256 --output exp1/results/p0_diagnostics.real_smoke.csv
 ```
 
-结果：当前 `curve` 环境以退出码 `139`（SIGSEGV）结束，未生成真实训练行；
-本次 runner 日志停在 `loading QNLI data...`，fault handler 没有给出 Python
-traceback。分阶段检查可以完成 QNLI 缓存加载、tokenization 和 BERT 模型构建，
-因此该问题属于当前运行时/底层依赖的真实训练 smoke 阻塞，不影响上述
-optimizer/CSV smoke 和单元测试。完整的 `1230` logical-step 实验未运行。
+结果：通过；完成 3 个真实 logical steps，生成
+`exp1/results/p0_diagnostics.real_smoke.csv`，包含完整 15 列和 3 行数据，
+所有指标均为有限值。修复点是模仿 `scripts/train.py`：在 QNLI/BERT 完成后才
+导入 Opacus/SciPy/`bert_qnli.privacy`，并在 Opacus 初始化前调用 `model.train()`。
+完整的 `1230` logical-step 实验未运行。
 
 ## CSV 示例
 

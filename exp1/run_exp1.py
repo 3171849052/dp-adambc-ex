@@ -4,22 +4,18 @@
 from __future__ import annotations
 
 import argparse
-import csv
 from pathlib import Path
 import sys
 
 import torch
-from opacus.utils.batch_memory_manager import BatchMemoryManager
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
-from bert_qnli import privacy as privacy_module  # noqa: E402
 from bert_qnli.config import load_config  # noqa: E402
 from bert_qnli.data import load_qnli  # noqa: E402
 from bert_qnli.model import build_model  # noqa: E402
-from bert_qnli.privacy import cleanup_private_hooks, make_private_training  # noqa: E402
 from bert_qnli.utils import resolve_device, set_seed  # noqa: E402
 
 from exp1.csv_writer import DiagnosticsCSVWriter  # noqa: E402
@@ -106,6 +102,18 @@ def run(
     print("loading BERT model...", flush=True)
     model = build_model(config, data.tokenizer)
     model.to(device)
+    # from_pretrained() returns evaluation mode; Opacus validates training mode
+    # before installing Ghost Clipping hooks, matching scripts/train.py.
+    model.train()
+
+    # Keep Opacus, SciPy, and bert_qnli.privacy out of the process until after
+    # QNLI tokenization and BERT construction. This mirrors scripts/train.py
+    # and avoids the runtime import order that caused the CPU SIGSEGV.
+    from opacus.utils.batch_memory_manager import BatchMemoryManager
+
+    from bert_qnli import privacy as privacy_module
+    from bert_qnli.privacy import cleanup_private_hooks, make_private_training
+
     print("initializing Opacus private training...", flush=True)
     # make_private_training resolves FPCDPAdam from this module global. The
     # subclass is API-compatible and leaves the actual FPC update unchanged.

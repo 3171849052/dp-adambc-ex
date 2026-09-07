@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import csv
 from pathlib import Path
 
@@ -163,3 +164,64 @@ def test_csv_gate_writes_only_real_logical_steps(tmp_path: Path):
         rows = list(csv.DictReader(stream))
     assert len(rows) == 2
     assert [int(float(item["global_step"])) for item in rows] == [1, 2]
+
+
+def test_runner_defers_opacus_privacy_imports_until_after_data_and_model():
+    runner = Path(__file__).resolve().parents[1] / "run_exp1.py"
+    tree = ast.parse(runner.read_text(encoding="utf-8"))
+    top_level_imports = [
+        node
+        for node in tree.body
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+    ]
+
+    def imported_module(node):
+        if isinstance(node, ast.Import):
+            return [alias.name for alias in node.names]
+        modules = [node.module or ""]
+        if node.module == "bert_qnli":
+            modules.extend(
+                f"bert_qnli.{alias.name}"
+                for alias in node.names
+                if alias.name == "privacy"
+            )
+        return modules
+
+    forbidden = ("opacus", "scipy", "bert_qnli.privacy")
+    assert not any(
+        any(module == item or module.startswith(item + ".") for item in forbidden)
+        for node in top_level_imports
+        for module in imported_module(node)
+    )
+
+    run_function = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "run"
+    )
+    load_line = next(
+        node.lineno
+        for node in ast.walk(run_function)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "load_qnli"
+    )
+    build_line = next(
+        node.lineno
+        for node in ast.walk(run_function)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "build_model"
+    )
+    heavy_import_lines = [
+        node.lineno
+        for node in ast.walk(run_function)
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        and any(
+            module == item or module.startswith(item + ".")
+            for module in imported_module(node)
+            for item in forbidden
+        )
+    ]
+    assert heavy_import_lines
+    assert min(heavy_import_lines) > max(load_line, build_line)

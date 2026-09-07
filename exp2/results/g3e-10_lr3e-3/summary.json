@@ -1,0 +1,72 @@
+{
+  "algorithm": "dpadambc",
+  "config": {
+    "algorithm": "dpadambc",
+    "data": {
+      "dataset_config": "qnli",
+      "dataset_name": "glue",
+      "eval_batch_size": 256,
+      "eval_split": "validation",
+      "logical_batch_size": 256,
+      "max_eval_samples": null,
+      "max_length": 128,
+      "max_physical_batch_size": 256,
+      "max_train_samples": null,
+      "train_split": "train"
+    },
+    "logging": {
+      "log_every_steps": 1
+    },
+    "model": {
+      "name": "bert-base-cased",
+      "num_labels": 2
+    },
+    "output": {
+      "root": "exp2/results/g3e-10_lr3e-3"
+    },
+    "privacy": {
+      "accountant": "gdp",
+      "clipping": "flat",
+      "delta": 1e-05,
+      "epsilon": 7.0,
+      "grad_sample_mode": "ghost",
+      "loss_reduction": "mean",
+      "max_grad_norm": 0.1,
+      "noise_type": "iid_gaussian",
+      "poisson_sampling": true,
+      "wrap_model": false
+    },
+    "runtime": {
+      "device": "auto",
+      "gpu": 0,
+      "num_workers": 0,
+      "pin_memory": true
+    },
+    "seed": 0,
+    "training": {
+      "epochs": 10,
+      "fpc_delay_q0": 1.0,
+      "fpc_lambda": 0.5,
+      "fpc_mode": "current",
+      "gamma_prime": 3e-10,
+      "learning_rate": 0.003,
+      "max_steps": null,
+      "optimizer": "dpadambc",
+      "scheduler": "none",
+      "warmup_steps": 0,
+      "weight_decay": 0.0
+    }
+  },
+  "device": "cuda:0",
+  "epochs_completed": 10,
+  "epsilon_spent": 6.993433800032892,
+  "eval_size": 5463,
+  "expected_batch_size": 255,
+  "global_step": 4100,
+  "noise_multiplier": 0.47027587890625,
+  "phi": 3.4011442103967075e-08,
+  "physical_batch_count": 6041,
+  "quantile_every_steps": 20,
+  "train_size": 104743,
+  "validation_rows": 10
+}

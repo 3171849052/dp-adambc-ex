@@ -1,0 +1,53 @@
+algorithm: dpadambc
+data:
+  dataset_config: qnli
+  dataset_name: glue
+  eval_batch_size: 256
+  eval_split: validation
+  logical_batch_size: 256
+  max_eval_samples: null
+  max_length: 128
+  max_physical_batch_size: 256
+  max_train_samples: null
+  train_split: train
+diagnostics:
+  quantile_every_steps: 20
+logging:
+  log_every_steps: 1
+model:
+  name: bert-base-cased
+  num_labels: 2
+output:
+  root: exp2/results/g3e-8_lr9.4868e-3
+privacy:
+  accountant: gdp
+  clipping: flat
+  delta: 1.0e-05
+  epsilon: 7.0
+  grad_sample_mode: ghost
+  loss_reduction: mean
+  max_grad_norm: 0.1
+  noise_type: iid_gaussian
+  poisson_sampling: true
+  wrap_model: false
+run:
+  directory: /media/data/data/lt/dp-adamwbc-ex/exp2/results/g3e-8_lr9.4868e-3
+runtime:
+  actual_device: cuda:0
+  device: auto
+  gpu: 0
+  num_workers: 0
+  pin_memory: true
+seed: 0
+training:
+  epochs: 10
+  fpc_delay_q0: 1.0
+  fpc_lambda: 0.5
+  fpc_mode: current
+  gamma_prime: 3.0e-08
+  learning_rate: 0.0094868329805
+  max_steps: null
+  optimizer: dpadambc
+  scheduler: none
+  warmup_steps: 0
+  weight_decay: 0.0

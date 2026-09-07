@@ -7,7 +7,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 import torch
 from torch import nn
@@ -55,6 +55,23 @@ def append_diagnostic_row(
             f"diagnostic step mismatch: {record['global_step']} != {global_step}"
         )
     writer.append(record)
+
+
+def append_quantile_row_if_new(
+    writer: QuantileCSVWriter,
+    record: Mapping[str, int | float] | None,
+    *,
+    last_quantile_written_step: int | None,
+) -> int | None:
+    """Append a quantile row once and return the latest written step."""
+
+    if record is None:
+        return last_quantile_written_step
+    step = int(record["global_step"])
+    if last_quantile_written_step == step:
+        return last_quantile_written_step
+    writer.append(record)
+    return step
 
 
 def _move_batch(batch: dict[str, torch.Tensor], device: torch.device):
@@ -226,6 +243,7 @@ def run(
     physical_batch_count = 0
     validation_rows = 0
     last_validation_step: int | None = None
+    last_quantile_written_step: int | None = None
     epsilon_spent: float | None = None
 
     def append_validation(*, epoch: int, step: int) -> float:
@@ -300,8 +318,11 @@ def run(
                         dict(record),
                         global_step=global_step,
                     )
-                    if underlying.last_quantile_diagnostics is not None:
-                        quantile_writer.append(underlying.last_quantile_diagnostics)
+                    last_quantile_written_step = append_quantile_row_if_new(
+                        quantile_writer,
+                        underlying.last_quantile_diagnostics,
+                        last_quantile_written_step=last_quantile_written_step,
+                    )
 
                     if (
                         config.training.max_steps is not None
@@ -323,16 +344,15 @@ def run(
             )
 
         # Quantiles are sparse, but the final logical step is always included.
-        if global_step > 0:
-            final_quantiles = underlying.last_quantile_diagnostics
-            if (
-                final_quantiles is None
-                or final_quantiles["global_step"] != global_step
-            ):
-                final_quantiles = underlying.current_quantile_diagnostics(
-                    global_step=global_step
-                )
-            quantile_writer.append(final_quantiles)
+        if global_step > 0 and last_quantile_written_step != global_step:
+            final_quantiles = underlying.current_quantile_diagnostics(
+                global_step=global_step
+            )
+            last_quantile_written_step = append_quantile_row_if_new(
+                quantile_writer,
+                final_quantiles,
+                last_quantile_written_step=last_quantile_written_step,
+            )
     finally:
         cleanup_private_hooks(private.hooks)
 

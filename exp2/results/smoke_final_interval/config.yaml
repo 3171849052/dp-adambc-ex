@@ -1,0 +1,52 @@
+algorithm: dpadambc
+seed: 0
+
+model:
+  name: bert-base-cased
+  num_labels: 2
+
+data:
+  dataset_name: glue
+  dataset_config: qnli
+  train_split: train
+  eval_split: validation
+  max_length: 128
+  logical_batch_size: 256
+  max_physical_batch_size: 256
+  eval_batch_size: 256
+  max_train_samples: null
+  max_eval_samples: null
+
+training:
+  epochs: 10
+  max_steps: null
+  learning_rate: 3.0e-3
+  optimizer: dpadambc
+  gamma_prime: 3.0e-9
+  weight_decay: 0.0
+  warmup_steps: 0
+  scheduler: none
+
+privacy:
+  epsilon: 7.0
+  delta: 1.0e-5
+  accountant: gdp
+  noise_type: iid_gaussian
+  max_grad_norm: 0.1
+  clipping: flat
+  grad_sample_mode: ghost
+  poisson_sampling: true
+  loss_reduction: mean
+  wrap_model: false
+
+runtime:
+  device: auto
+  gpu: 0
+  num_workers: 0
+  pin_memory: true
+
+output:
+  root: exp2/results/g3e-9_lr3e-3
+
+logging:
+  log_every_steps: 1

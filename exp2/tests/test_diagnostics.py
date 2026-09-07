@@ -18,7 +18,11 @@ from exp2.csv_writer import (
     ValidationCSVWriter,
 )
 from exp2.diagnostic_optimizer import DiagnosticDPAdamBC
-from exp2.run_exp2 import append_diagnostic_row, is_real_logical_step
+from exp2.run_exp2 import (
+    append_diagnostic_row,
+    append_quantile_row_if_new,
+    is_real_logical_step,
+)
 
 
 def _options(**overrides):
@@ -195,6 +199,57 @@ def test_quantile_interval_is_sparse_but_final_step_can_be_requested():
             assert optimizer.last_quantile_diagnostics is None
     final = optimizer.current_quantile_diagnostics(global_step=3)
     assert final["global_step"] == 3
+
+
+def _quantile_record(step: int):
+    return {
+        "global_step": step,
+        "q_over_gamma_mean": 1.0,
+        "q_over_gamma_p50": 1.0,
+        "q_over_gamma_p90": 1.0,
+        "q_over_gamma_p99": 1.0,
+    }
+
+
+def test_final_quantile_is_added_when_final_step_misses_interval(tmp_path: Path):
+    writer = QuantileCSVWriter(tmp_path / "q_quantiles.csv")
+    last_step = None
+    for step in (1, 2, 3):
+        if step % 2 == 0:
+            last_step = append_quantile_row_if_new(
+                writer,
+                _quantile_record(step),
+                last_quantile_written_step=last_step,
+            )
+    last_step = append_quantile_row_if_new(
+        writer,
+        _quantile_record(3),
+        last_quantile_written_step=last_step,
+    )
+    with writer.path.open(newline="", encoding="utf-8") as stream:
+        rows = list(csv.DictReader(stream))
+    assert last_step == 3
+    assert [int(row["global_step"]) for row in rows] == [2, 3]
+
+
+def test_final_quantile_hit_by_interval_is_not_written_twice(tmp_path: Path):
+    writer = QuantileCSVWriter(tmp_path / "q_quantiles.csv")
+    last_step = None
+    for step in (1, 2, 3):
+        last_step = append_quantile_row_if_new(
+            writer,
+            _quantile_record(step),
+            last_quantile_written_step=last_step,
+        )
+    last_step = append_quantile_row_if_new(
+        writer,
+        _quantile_record(3),
+        last_quantile_written_step=last_step,
+    )
+    with writer.path.open(newline="", encoding="utf-8") as stream:
+        rows = list(csv.DictReader(stream))
+    assert last_step == 3
+    assert [int(row["global_step"]) for row in rows] == [1, 2, 3]
 
 
 def test_empty_optimizer_call_has_no_diagnostic_row():

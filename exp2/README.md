@@ -41,7 +41,8 @@ bc_clean_nrmse = ||r - v_clean_hat|| / (||v_clean_hat|| + 1e-30)
 `q_over_gamma` 的 mean/p50/p90/p99 则稀疏写入 `q_quantiles.csv`。默认每 20 个
 真实 logical steps 精确计算一次，并在最终 logical step 强制计算一次。每次计算
 仍基于该 step 所有 trainable parameter elements 拼接后的 CPU float64 tensor，
-不是逐 tensor percentile 的平均。
+不是逐 tensor percentile 的平均。runner 显式追踪最后已经写入的 quantile step，
+所以最终 step 命中 interval 时不会重复写入。
 
 floor-reference 指标使用：
 
@@ -152,12 +153,17 @@ global_step,phi,x2_mean,bc_clean_nrmse,negative_fraction,clamp_fraction,active_f
 global_step,q_over_gamma_mean,q_over_gamma_p50,q_over_gamma_p90,q_over_gamma_p99
 ```
 
-实际验证结果：单元测试 `14 passed, 1 deselected`；普通 smoke exit code 0，生成
+实际验证结果：单元测试 `16 passed, 1 deselected`；普通 smoke exit code 0，生成
 3 个 diagnostic rows、1 个 final quantile row 和 1 个 final validation row，
 `epsilon_spent=1.5887756650888445`。BMM split integration 为 `1 passed`，
 实际产生 13 个 physical batches，但仍只生成 global steps 1、2、3 各一行；所有
 CSV 数值有限，没有 duplicate logical rows，且
 `clamp_fraction + active_fraction = 1`。
+
+最终 step 命中 quantile interval 的真实 smoke（`--quantile-every-steps 1`）生成的
+quantile steps 严格为 `1,2,3`，共 3 行，没有重复的 final step；这覆盖了 interval
+命中 final step 时的去重逻辑。该 smoke 同样使用真实 QNLI、
+BERT、Opacus Ghost 和 DP-AdamBC，且 `epsilon_spent=1.5887756650888445`。
 
 普通 smoke 的 CSV 示例：
 

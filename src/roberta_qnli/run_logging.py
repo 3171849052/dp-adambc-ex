@@ -65,6 +65,29 @@ def _format_number(value: float | int) -> str:
     return format(number.normalize(), "f")
 
 
+def _format_name_component(value: str) -> str:
+    """Format a model or dataset identifier as one safe path component."""
+
+    component = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip())
+    component = component.strip(".-_")
+    if not component:
+        raise ValueError("run name components must contain a path-safe character")
+    return component
+
+
+def _model_name(config: Config) -> str:
+    """Return the short model name used in output directory names."""
+
+    return _format_name_component(config.model.name.rsplit("/", 1)[-1])
+
+
+def _dataset_name(config: Config) -> str:
+    """Return the concrete dataset/config name used in output directory names."""
+
+    dataset = config.data.dataset_config or config.data.dataset_name
+    return _format_name_component(dataset)
+
+
 def format_run_name(config: Config, timestamp: datetime | None = None) -> str:
     """Return the documented run name for a parsed configuration."""
 
@@ -81,7 +104,8 @@ def format_run_name(config: Config, timestamp: datetime | None = None) -> str:
         else ""
     )
     return (
-        f"{stamp:%Y%m%d-%H%M%S}_{config.algorithm}"
+        f"{stamp:%Y%m%d-%H%M%S}_{_model_name(config)}_{_dataset_name(config)}_"
+        f"{config.algorithm}"
         f"{gamma_prime}"
         f"{fpc_lambda}"
         f"_eps{_format_number(config.privacy.epsilon)}"

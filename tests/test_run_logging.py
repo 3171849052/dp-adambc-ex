@@ -30,7 +30,17 @@ def _config(tmp_path, **overrides):
 def test_run_name_has_exact_required_format(tmp_path):
     config = _config(tmp_path)
     assert format_run_name(config, datetime(2026, 9, 2, 18, 5, 0)) == (
-        "20260902-180500_dpadam_eps3_d1e-5_ep3_lb1024_lr1e-4_C1_s0"
+        "20260902-180500_test_qnli_dpadam_eps3_d1e-5_ep3_lb1024_lr1e-4_C1_s0"
+    )
+
+
+def test_run_name_uses_short_model_name_and_dataset_config(tmp_path):
+    config = _config(
+        tmp_path,
+        model={"name": "FacebookAI/roberta-base"},
+    )
+    assert format_run_name(config, datetime(2026, 9, 2, 18, 5, 0)).startswith(
+        "20260902-180500_roberta-base_qnli_dpadam_"
     )
 
 
@@ -40,7 +50,7 @@ def test_dpadambc_run_name_includes_gamma_prime_as_g(tmp_path):
     config.training.optimizer = "dpadambc"
     config.training.gamma_prime = 1.0e-8
     assert format_run_name(config, datetime(2026, 9, 2, 18, 5, 0)) == (
-        "20260902-180500_dpadambc_g1e-8_eps3_d1e-5_ep3_lb1024_lr1e-4_C1_s0"
+        "20260902-180500_test_qnli_dpadambc_g1e-8_eps3_d1e-5_ep3_lb1024_lr1e-4_C1_s0"
     )
 
 
@@ -51,7 +61,7 @@ def test_fpcdpadam_run_name_includes_gamma_prime_as_g_and_lambda_as_l(tmp_path):
     config.training.gamma_prime = 1.0e-7
     config.training.fpc_lambda = 0.5
     assert format_run_name(config, datetime(2026, 9, 2, 18, 5, 0)) == (
-        "20260902-180500_fpcdpadam_g1e-7_l0.5_eps3_d1e-5_ep3_lb1024_lr1e-4_C1_s0"
+        "20260902-180500_test_qnli_fpcdpadam_g1e-7_l0.5_eps3_d1e-5_ep3_lb1024_lr1e-4_C1_s0"
     )
 
 
@@ -66,7 +76,7 @@ def test_run_name_changes_with_algorithm_and_parameters(tmp_path):
     config.privacy.max_grad_norm = 0.5
     config.seed = 9
     assert format_run_name(config, datetime(2026, 9, 2, 18, 5, 0)) == (
-        "20260902-180500_another_algorithm_eps2_d1e-6_ep7_lb512_lr2.5e-4_C0.5_s9"
+        "20260902-180500_test_qnli_another_algorithm_eps2_d1e-6_ep7_lb512_lr2.5e-4_C0.5_s9"
     )
 
 
@@ -85,7 +95,7 @@ def test_same_second_collision_advances_timestamp_without_suffix(tmp_path):
 
     assert first.directory.name.endswith("_s0")
     assert second.directory.name.startswith(
-        "20260902-180501_dpadam_eps3_d1e-5_ep3_lb1024_lr1e-4_C1_s0"
+        "20260902-180501_test_qnli_dpadam_eps3_d1e-5_ep3_lb1024_lr1e-4_C1_s0"
     )
     assert first.directory != second.directory
     assert "_1" not in second.directory.name
@@ -94,8 +104,8 @@ def test_same_second_collision_advances_timestamp_without_suffix(tmp_path):
 
 def test_tmux_session_name_is_deterministic_and_tmux_safe():
     assert format_tmux_session_name(
-        "/tmp/20260902-180500_dpadam_eps3_d1e-5_ep3_lb1024_lr1e-4_C1_s0"
-    ) == "dp_adambc_ex_20260902-180500_dpadam_eps3_d1e-5_ep3_lb1024_lr1e-4_C1_s0"
+        "/tmp/20260902-180500_test_qnli_dpadam_eps3_d1e-5_ep3_lb1024_lr1e-4_C1_s0"
+    ) == "dp_adambc_ex_20260902-180500_test_qnli_dpadam_eps3_d1e-5_ep3_lb1024_lr1e-4_C1_s0"
     assert format_tmux_session_name("/tmp/run.name:with spaces") == (
         "dp_adambc_ex_run_name_with_spaces"
     )

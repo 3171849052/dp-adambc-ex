@@ -1,0 +1,76 @@
+{
+  "algorithm": "dpadambc",
+  "best_accuracy": 0.6273110012813472,
+  "config": {
+    "algorithm": "dpadambc",
+    "data": {
+      "dataset_config": "qnli",
+      "dataset_name": "glue",
+      "eval_batch_size": 256,
+      "eval_split": "validation",
+      "logical_batch_size": 256,
+      "max_eval_samples": null,
+      "max_length": 128,
+      "max_physical_batch_size": 256,
+      "max_train_samples": null,
+      "train_split": "train"
+    },
+    "logging": {
+      "log_every_steps": 1
+    },
+    "model": {
+      "name": "bert-base-cased",
+      "num_labels": 2
+    },
+    "output": {
+      "root": "outputs"
+    },
+    "privacy": {
+      "accountant": "gdp",
+      "clipping": "flat",
+      "delta": 1e-05,
+      "epsilon": 7.0,
+      "grad_sample_mode": "ghost",
+      "loss_reduction": "mean",
+      "max_grad_norm": 0.1,
+      "noise_type": "iid_gaussian",
+      "poisson_sampling": true,
+      "wrap_model": false
+    },
+    "runtime": {
+      "device": "auto",
+      "gpu": 1,
+      "num_workers": 0,
+      "pin_memory": true
+    },
+    "seed": 1,
+    "training": {
+      "epochs": 10,
+      "fpc_delay_q0": 1.0,
+      "fpc_lambda": 0.5,
+      "fpc_mode": "current",
+      "gamma_prime": 3e-09,
+      "learning_rate": 0.003,
+      "max_steps": null,
+      "optimizer": "dpadambc",
+      "scheduler": "none",
+      "warmup_steps": 0,
+      "weight_decay": 0.0
+    }
+  },
+  "device": "cuda:0",
+  "epsilon": 6.993433800032892,
+  "eval_size": 5463,
+  "expected_batch_size": 255,
+  "final_metrics": {
+    "accuracy": 0.6254805052169138,
+    "loss": 1.7338919307032108
+  },
+  "global_step": 4100,
+  "noise_multiplier": 0.47027587890625,
+  "phi": 3.4011442103967075e-08,
+  "run_directory": "/media/data/data/lt/dp-adamwbc-ex/outputs/20260906-102919_bert-base-cased_qnli_dpadambc_g3e-9_eps7_d1e-5_ep10_lb256_lr0.003_C0.1_s1",
+  "sample_rate": 0.0024390243902439024,
+  "seed": 1,
+  "train_size": 104743
+}

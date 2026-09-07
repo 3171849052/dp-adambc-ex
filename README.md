@@ -45,6 +45,8 @@ python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda
 `runtime.gpu` 选择物理 GPU；启动器将它映射为训练进程内的 `cuda:0`，并在
 tmux 中后台运行。每次运行在 `outputs/` 下写入配置快照、resolved config、
 `metrics.csv`、`summary.json` 和 `train.log`，不保存 checkpoint。
+输出目录名格式为 `时间_模型名_数据集名_算法名_参数...`，例如
+`20260905-102056_bert-base-cased_qnli_dpadambc_...`。
 
 ## 测试
 

@@ -1,0 +1,61 @@
+algorithm: dpadam
+data:
+  dataset_config: qnli
+  dataset_name: glue
+  eval_batch_size: 256
+  eval_size: 5463
+  eval_split: validation
+  logical_batch_size: 256
+  max_eval_samples: null
+  max_length: 128
+  max_physical_batch_size: 256
+  max_train_samples: null
+  train_size: 104743
+  train_split: train
+logging:
+  log_every_steps: 1
+model:
+  name: bert-base-cased
+  num_labels: 2
+output:
+  root: outputs
+privacy:
+  accountant: gdp
+  clipping: flat
+  delta: 1.0e-05
+  epsilon: 7.0
+  epsilon_spent: 6.993433800032892
+  expected_batch_size: null
+  grad_sample_mode: ghost
+  loss_reduction: mean
+  max_grad_norm: 0.1
+  noise_multiplier: 0.47027587890625
+  noise_type: iid_gaussian
+  phi: null
+  poisson_sampling: true
+  sample_rate: 0.0024390243902439024
+  wrap_model: false
+run:
+  directory: /media/data/data/lt/dp-adamwbc-ex/outputs/20260904-235108_dpadam_eps7_d1e-5_ep10_lb256_lr0.1_C0.1_s0
+runtime:
+  actual_device: cuda:0
+  cuda_visible_devices: '0'
+  device: auto
+  gpu: 0
+  gpu_name: NVIDIA GeForce RTX 3080 Ti
+  num_workers: 0
+  physical_gpu_index: 0
+  pin_memory: true
+seed: 0
+training:
+  epochs: 10
+  fpc_delay_q0: 1.0
+  fpc_lambda: 0.5
+  fpc_mode: current
+  gamma_prime: 1.0e-08
+  learning_rate: 0.1
+  max_steps: null
+  optimizer: adam
+  scheduler: none
+  warmup_steps: 0
+  weight_decay: 0.0

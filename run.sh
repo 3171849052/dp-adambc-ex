@@ -13,7 +13,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 export DP_ADAMBC_EX_REPOSITORY_ROOT="$ROOT"
-DEFAULT_CONFIG="$ROOT/config/qnli_roberta_base_dpadambc.yaml"
+DEFAULT_CONFIG="$ROOT/config/qnli_bert_base_fpcdpadam.yaml"
 
 if [[ $# -eq 0 ]]; then
   CONFIG="$DEFAULT_CONFIG"
@@ -37,7 +37,7 @@ if command -v conda >/dev/null 2>&1; then
 elif [[ -x "$HOME/miniconda3/bin/conda" ]]; then
   CONDA_BIN="$HOME/miniconda3/bin/conda"
 else
-  echo "conda is required to activate the adamex environment" >&2
+  echo "conda is required to activate the curve environment" >&2
   exit 1
 fi
 if command -v tmux >/dev/null 2>&1; then
@@ -51,7 +51,7 @@ fi
 # Suspend nounset only while Conda evaluates those hooks.
 set +u
 eval "$("$CONDA_BIN" shell.bash hook)"
-conda activate adamex
+conda activate curve
 set -u
 
 CONFIG="$(realpath "$CONFIG")"
@@ -86,7 +86,7 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
 fi
 
 printf -v COMMAND \
-  'cd %q && eval "$(%q shell.bash hook)" && conda activate adamex && export TOKENIZERS_PARALLELISM=false && export RAYON_NUM_THREADS=1 && export PYTHONFAULTHANDLER=1 && GPU=%q && set -o pipefail && CUDA_VISIBLE_DEVICES="$GPU" python -u scripts/train.py --config %q --run-dir %q 2>&1 | tee -a %q' \
+  'cd %q && eval "$(%q shell.bash hook)" && conda activate curve && export TOKENIZERS_PARALLELISM=false && export RAYON_NUM_THREADS=1 && export PYTHONFAULTHANDLER=1 && GPU=%q && set -o pipefail && CUDA_VISIBLE_DEVICES="$GPU" python -u scripts/train.py --config %q --run-dir %q 2>&1 | tee -a %q' \
   "$ROOT" "$CONDA_BIN" "$GPU" "$CONFIG" "$RUN_DIR" "$TRAIN_LOG"
 tmux new-session -d -s "$SESSION" "$COMMAND"
 

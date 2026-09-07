@@ -1,0 +1,79 @@
+{
+  "algorithm": "fpcdpadam",
+  "best_accuracy": 0.8705839282445543,
+  "config": {
+    "algorithm": "fpcdpadam",
+    "data": {
+      "dataset_config": "qnli",
+      "dataset_name": "glue",
+      "eval_batch_size": 32,
+      "eval_split": "validation",
+      "first_sent_limit": 200,
+      "logical_batch_size": 512,
+      "max_eval_samples": null,
+      "max_length": 256,
+      "max_physical_batch_size": 16,
+      "max_train_samples": null,
+      "other_sent_limit": 200,
+      "train_split": "train",
+      "truncate_head": true
+    },
+    "logging": {
+      "log_every_steps": 1
+    },
+    "model": {
+      "name": "FacebookAI/roberta-base",
+      "num_labels": 2
+    },
+    "output": {
+      "root": "outputs"
+    },
+    "privacy": {
+      "accountant": "gdp",
+      "clipping": "flat",
+      "delta": 1e-05,
+      "epsilon": 3.0,
+      "grad_sample_mode": "ghost",
+      "loss_reduction": "mean",
+      "max_grad_norm": 1.0,
+      "noise_type": "iid_gaussian",
+      "poisson_sampling": true,
+      "wrap_model": false
+    },
+    "runtime": {
+      "device": "auto",
+      "gpu": 0,
+      "num_workers": 0,
+      "pin_memory": true
+    },
+    "seed": 0,
+    "training": {
+      "epochs": 5,
+      "fpc_delay_q0": 1.0,
+      "fpc_lambda": 0.3,
+      "fpc_mode": "current",
+      "gamma_prime": 1e-07,
+      "learning_rate": 5e-05,
+      "max_steps": null,
+      "optimizer": "fpcdpadam",
+      "scheduler": "none",
+      "warmup_steps": 0,
+      "weight_decay": 0.0
+    }
+  },
+  "device": "cuda:0",
+  "epsilon": 2.9942974656903782,
+  "eval_size": 5463,
+  "expected_batch_size": 510,
+  "final_metrics": {
+    "accuracy": 0.8705839282445543,
+    "loss": 0.8876880870870503
+  },
+  "global_step": 1025,
+  "noise_multiplier": 0.5682373046875,
+  "phi": 1.241421124331083e-06,
+  "run_directory": "/media/data/data/lt/dp-adamwbc-ex/outputs/20260903-182004_fpcdpadam_g1e-7_l0.3_eps3_d1e-5_ep5_lb512_lr5e-5_C1_s0",
+  "sample_rate": 0.004878048780487805,
+  "seed": 0,
+  "train_size": 104743
+}

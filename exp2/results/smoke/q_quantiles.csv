@@ -1,0 +1,2 @@
+global_step,q_over_gamma_mean,q_over_gamma_p50,q_over_gamma_p90,q_over_gamma_p99
+3,25.32398219402495,1.0000000087255028,86.84817961087295,223.02572385039375

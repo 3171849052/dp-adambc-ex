@@ -8,10 +8,16 @@ import os
 from pathlib import Path
 from typing import Any, Mapping
 
-from .diagnostic_optimizer import DIAGNOSTIC_FIELDS
+from .diagnostic_optimizer import DIAGNOSTIC_FIELDS, QUANTILE_FIELDS
 
 
-VALIDATION_FIELDS = ("global_step", "val_loss", "val_accuracy")
+VALIDATION_FIELDS = (
+    "epoch",
+    "global_step",
+    "val_loss",
+    "val_accuracy",
+    "epsilon_spent",
+)
 
 
 class _CSVWriter:
@@ -22,7 +28,9 @@ class _CSVWriter:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("w", newline="", encoding="utf-8") as stream:
-            csv.DictWriter(stream, fieldnames=self.fields).writeheader()
+            csv.DictWriter(
+                stream, fieldnames=self.fields, lineterminator="\n"
+            ).writeheader()
             stream.flush()
             os.fsync(stream.fileno())
 
@@ -36,7 +44,9 @@ class _CSVWriter:
         if not finite:
             raise ValueError(f"{self.description} record contains NaN or Inf")
         with self.path.open("a", newline="", encoding="utf-8") as stream:
-            csv.DictWriter(stream, fieldnames=self.fields).writerow(record)
+            csv.DictWriter(
+                stream, fieldnames=self.fields, lineterminator="\n"
+            ).writerow(record)
             stream.flush()
             os.fsync(stream.fileno())
 
@@ -51,9 +61,16 @@ class ValidationCSVWriter(_CSVWriter):
     description = "validation"
 
 
+class QuantileCSVWriter(_CSVWriter):
+    fields = QUANTILE_FIELDS
+    description = "quantile"
+
+
 __all__ = [
     "DIAGNOSTIC_FIELDS",
     "DiagnosticsCSVWriter",
+    "QUANTILE_FIELDS",
+    "QuantileCSVWriter",
     "VALIDATION_FIELDS",
     "ValidationCSVWriter",
 ]

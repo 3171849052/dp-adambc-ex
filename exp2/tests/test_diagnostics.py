@@ -7,15 +7,18 @@ from pathlib import Path
 import pytest
 import torch
 
+from bert_qnli.config import load_config
 from bert_qnli.optim import DPAdamBC
 from exp2.csv_writer import (
     DIAGNOSTIC_FIELDS,
     DiagnosticsCSVWriter,
+    QUANTILE_FIELDS,
+    QuantileCSVWriter,
     VALIDATION_FIELDS,
     ValidationCSVWriter,
 )
 from exp2.diagnostic_optimizer import DiagnosticDPAdamBC
-from exp2.run_exp2 import is_real_logical_step
+from exp2.run_exp2 import append_diagnostic_row, is_real_logical_step
 
 
 def _options(**overrides):
@@ -85,7 +88,6 @@ def test_r_uses_unclamped_dp_formula_and_nrmse_is_before_clamp():
     # subtracting phi or q after clamp would produce a different NRMSE.
     assert row["bc_clean_nrmse"] == pytest.approx((53.125 / 82.0) ** 0.5)
     assert row["clamp_fraction"] == pytest.approx(0.5)
-    assert row["q_over_gamma_mean"] == pytest.approx((1.0 + 1.575) / 2.0)
     torch.testing.assert_close(
         optimizer.state[parameter]["exp_avg_sq"],
         torch.tensor([4.0, 16.0], dtype=torch.float64),
@@ -157,14 +159,42 @@ def test_global_quantiles_are_taken_over_all_parameter_elements():
     first.summed_grad = torch.ones(1, dtype=torch.float64)
     second.grad = torch.tensor([2.0, 3.0], dtype=torch.float64)
     second.summed_grad = torch.ones(2, dtype=torch.float64)
+    optimizer.quantile_requested = True
     optimizer.step()
     row = optimizer.last_diagnostics
+    quantile_row = optimizer.last_quantile_diagnostics
     assert row is not None
+    assert quantile_row is not None
     # q/gamma is the global [1, 4, 9], not a mean of per-tensor quantiles.
-    assert row["q_over_gamma_mean"] == pytest.approx(14 / 3)
-    assert row["q_over_gamma_p50"] == pytest.approx(4.0)
-    assert row["q_over_gamma_p90"] == pytest.approx(8.0)
-    assert row["q_over_gamma_p99"] == pytest.approx(8.9)
+    assert tuple(quantile_row) == QUANTILE_FIELDS
+    assert quantile_row["q_over_gamma_mean"] == pytest.approx(14 / 3)
+    assert quantile_row["q_over_gamma_p50"] == pytest.approx(4.0)
+    assert quantile_row["q_over_gamma_p90"] == pytest.approx(8.0)
+    assert quantile_row["q_over_gamma_p99"] == pytest.approx(8.9)
+
+
+def test_quantile_interval_is_sparse_but_final_step_can_be_requested():
+    parameter = torch.nn.Parameter(torch.zeros(2, dtype=torch.float64))
+    optimizer = DiagnosticDPAdamBC(
+        [parameter],
+        betas=(0.0, 0.0),
+        gamma_prime=1.0,
+        noise_multiplier=0.0,
+        max_grad_norm=1.0,
+        expected_batch_size=1,
+    )
+    for step in range(1, 4):
+        parameter.grad = torch.tensor([float(step), 2.0], dtype=torch.float64)
+        parameter.summed_grad = torch.ones(2, dtype=torch.float64)
+        optimizer.quantile_requested = step % 2 == 0
+        optimizer.step()
+        if step == 2:
+            assert optimizer.last_quantile_diagnostics is not None
+            assert optimizer.last_quantile_diagnostics["global_step"] == 2
+        else:
+            assert optimizer.last_quantile_diagnostics is None
+    final = optimizer.current_quantile_diagnostics(global_step=3)
+    assert final["global_step"] == 3
 
 
 def test_empty_optimizer_call_has_no_diagnostic_row():
@@ -189,10 +219,25 @@ def test_csv_schemas_finite_values_and_validation_rows(tmp_path: Path):
 
     validation_path = tmp_path / "validation_metrics.csv"
     validation = ValidationCSVWriter(validation_path)
-    validation.append({"global_step": 410, "val_loss": 0.5, "val_accuracy": 0.75})
+    validation.append(
+        {
+            "epoch": 1,
+            "global_step": 410,
+            "val_loss": 0.5,
+            "val_accuracy": 0.75,
+            "epsilon_spent": 2.0,
+        }
+    )
     with validation_path.open(newline="", encoding="utf-8") as stream:
         rows = list(csv.DictReader(stream))
     assert tuple(rows[0]) == VALIDATION_FIELDS
+
+    quantile_path = tmp_path / "q_quantiles.csv"
+    quantiles = QuantileCSVWriter(quantile_path)
+    quantiles.append({field: 1.0 for field in QUANTILE_FIELDS})
+    with quantile_path.open(newline="", encoding="utf-8") as stream:
+        rows = list(csv.DictReader(stream))
+    assert tuple(rows[0]) == QUANTILE_FIELDS
 
 
 def test_csv_gate_writes_only_real_logical_steps(tmp_path: Path):
@@ -215,6 +260,15 @@ def test_csv_gate_writes_only_real_logical_steps(tmp_path: Path):
         rows = list(csv.DictReader(stream))
     assert len(rows) == 2
     assert [int(float(row["global_step"])) for row in rows] == [1, 2]
+
+
+def test_runner_rejects_optimizer_runner_step_mismatch(tmp_path: Path):
+    writer = DiagnosticsCSVWriter(tmp_path / "diagnostics.csv")
+    row = {field: 1.0 for field in DIAGNOSTIC_FIELDS}
+    row["global_step"] = 1
+    append_diagnostic_row(writer, row, global_step=1)
+    with pytest.raises(RuntimeError, match=r"diagnostic step mismatch: 1 != 2"):
+        append_diagnostic_row(writer, row, global_step=2)
 
 
 def test_runner_keeps_heavy_imports_after_data_and_model_setup():
@@ -279,3 +333,15 @@ def test_every_optimizer_diagnostic_scalar_is_finite():
     optimizer.step()
     assert optimizer.last_diagnostics is not None
     assert all(torch.isfinite(torch.tensor(value, dtype=torch.float64)) for value in optimizer.last_diagnostics.values())
+
+
+def test_formal_configs_run_for_all_ten_epochs_without_step_cap():
+    config_dir = Path(__file__).resolve().parents[1] / "configs"
+    configs = sorted(config_dir.glob("bc_*.yaml"))
+    assert len(configs) == 5
+    for path in configs:
+        config = load_config(path)
+        assert config.training.epochs == 10
+        assert config.training.max_steps is None
+        assert config.seed == 0
+        assert config.privacy.epsilon == pytest.approx(7.0)

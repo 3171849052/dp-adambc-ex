@@ -25,18 +25,36 @@ from bert_qnli.data import load_qnli  # noqa: E402
 from bert_qnli.model import build_model  # noqa: E402
 from bert_qnli.utils import resolve_device, set_seed  # noqa: E402
 
-from exp2.csv_writer import DiagnosticsCSVWriter, ValidationCSVWriter  # noqa: E402
+from exp2.csv_writer import (  # noqa: E402
+    DiagnosticsCSVWriter,
+    QuantileCSVWriter,
+    ValidationCSVWriter,
+)
 from exp2.diagnostic_optimizer import DiagnosticDPAdamBC  # noqa: E402
 
 
 DEFAULT_CONFIG = ROOT / "exp2/configs/bc_g3e-9_lr3e-3.yaml"
-DEFAULT_EVAL_STEPS = (410, 820, 1230)
 
 
 def is_real_logical_step(dp_optimizer: Any) -> bool:
     """Return whether the preceding DPOptimizer call made a real update."""
 
     return not bool(getattr(dp_optimizer, "_is_last_step_skipped", False))
+
+
+def append_diagnostic_row(
+    writer: DiagnosticsCSVWriter,
+    record: dict[str, int | float],
+    *,
+    global_step: int,
+) -> None:
+    """Write a diagnostic only when optimizer and runner steps agree."""
+
+    if record["global_step"] != global_step:
+        raise RuntimeError(
+            f"diagnostic step mismatch: {record['global_step']} != {global_step}"
+        )
+    writer.append(record)
 
 
 def _move_batch(batch: dict[str, torch.Tensor], device: torch.device):
@@ -89,29 +107,19 @@ def _resolve_output_dir(config, output_dir: Path | None) -> Path:
     return selected if selected.is_absolute() else ROOT / selected
 
 
-def _parse_eval_steps(value: str | None) -> tuple[int, ...]:
-    if value is None:
-        return DEFAULT_EVAL_STEPS
-    try:
-        steps = tuple(sorted({int(item.strip()) for item in value.split(",") if item.strip()}))
-    except ValueError as error:
-        raise ValueError("--eval-steps must be a comma-separated list of integers") from error
-    if any(step <= 0 for step in steps):
-        raise ValueError("evaluation steps must be positive")
-    return steps
-
-
 def _write_initial_metadata(
     output_dir: Path,
     *,
     source_yaml: str,
     config,
     device: torch.device,
+    quantile_every_steps: int,
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "config.yaml").write_text(source_yaml, encoding="utf-8")
     resolved = config.to_dict()
     resolved["runtime"]["actual_device"] = str(device)
+    resolved["diagnostics"] = {"quantile_every_steps": quantile_every_steps}
     resolved["run"] = {"directory": str(output_dir.resolve())}
     (output_dir / "resolved_config.yaml").write_text(
         yaml.safe_dump(resolved, sort_keys=True), encoding="utf-8"
@@ -126,7 +134,9 @@ def run(
     device_name: str | None = None,
     max_train_samples: int | None = None,
     max_eval_samples: int | None = None,
-    eval_steps: tuple[int, ...] = DEFAULT_EVAL_STEPS,
+    max_physical_batch_size: int | None = None,
+    quantile_every_steps: int = 20,
+    physical_batch_counter: list[int] | None = None,
 ) -> int:
     """Run QNLI training and write only scalar diagnostics and validation rows."""
 
@@ -146,6 +156,12 @@ def run(
         if max_eval_samples <= 0:
             raise ValueError("max_eval_samples must be positive")
         config.data.max_eval_samples = max_eval_samples
+    if max_physical_batch_size is not None:
+        if max_physical_batch_size <= 0:
+            raise ValueError("max_physical_batch_size must be positive")
+        config.data.max_physical_batch_size = max_physical_batch_size
+    if quantile_every_steps <= 0:
+        raise ValueError("quantile_every_steps must be positive")
     if config.algorithm.lower() != "dpadambc":
         raise ValueError("Experiment 2 requires algorithm=dpadambc")
     if config.model.name != "bert-base-cased" or config.data.dataset_config != "qnli":
@@ -155,9 +171,14 @@ def run(
     device = resolve_device(config.runtime.device)
     destination = _resolve_output_dir(config, output_dir)
     _write_initial_metadata(
-        destination, source_yaml=source_yaml, config=config, device=device
+        destination,
+        source_yaml=source_yaml,
+        config=config,
+        device=device,
+        quantile_every_steps=quantile_every_steps,
     )
     diagnostics_writer = DiagnosticsCSVWriter(destination / "bc_diagnostics.csv")
+    quantile_writer = QuantileCSVWriter(destination / "q_quantiles.csv")
     validation_writer = ValidationCSVWriter(destination / "validation_metrics.csv")
 
     print("loading QNLI data...", flush=True)
@@ -201,7 +222,42 @@ def run(
 
     global_step = 0
     stop_training = False
+    epochs_completed = 0
+    physical_batch_count = 0
     validation_rows = 0
+    last_validation_step: int | None = None
+    epsilon_spent: float | None = None
+
+    def append_validation(*, epoch: int, step: int) -> float:
+        nonlocal validation_rows, last_validation_step
+        metrics = evaluate_model(private_model, data.eval_loader, device)
+        spent = float(private.privacy_engine.get_epsilon(config.privacy.delta))
+        validation_writer.append(
+            {
+                "epoch": epoch,
+                "global_step": step,
+                "val_loss": metrics["loss"],
+                "val_accuracy": metrics["accuracy"],
+                "epsilon_spent": spent,
+            }
+        )
+        validation_rows += 1
+        last_validation_step = step
+        print(
+            json.dumps(
+                {
+                    "epoch": epoch,
+                    "global_step": step,
+                    "val_loss": metrics["loss"],
+                    "val_accuracy": metrics["accuracy"],
+                    "epsilon_spent": spent,
+                },
+                sort_keys=True,
+            ),
+            flush=True,
+        )
+        return spent
+
     try:
         for epoch in range(1, config.training.epochs + 1):
             private_model.train()
@@ -211,6 +267,7 @@ def run(
                 optimizer=private_optimizer,
             ) as memory_safe_loader:
                 for batch in memory_safe_loader:
+                    physical_batch_count += 1
                     if not batch["labels"].numel():
                         # Empty Poisson batches consume no optimizer diagnostic row.
                         private_optimizer.zero_grad()
@@ -224,6 +281,9 @@ def run(
                     outputs = private_model(**batch)
                     loss = private.criterion(_extract_logits(outputs), labels)
                     loss.backward()
+                    underlying.quantile_requested = (
+                        (global_step + 1) % quantile_every_steps == 0
+                    )
                     private_optimizer.step()
                     private_optimizer.zero_grad()
 
@@ -235,31 +295,13 @@ def run(
                         raise RuntimeError(
                             "no diagnostic row was produced for a non-empty logical step"
                         )
-                    row = dict(record)
-                    row["global_step"] = global_step
-                    diagnostics_writer.append(row)
-
-                    if global_step in eval_steps:
-                        metrics = evaluate_model(private_model, data.eval_loader, device)
-                        validation_writer.append(
-                            {
-                                "global_step": global_step,
-                                "val_loss": metrics["loss"],
-                                "val_accuracy": metrics["accuracy"],
-                            }
-                        )
-                        validation_rows += 1
-                        print(
-                            json.dumps(
-                                {
-                                    "global_step": global_step,
-                                    "val_loss": metrics["loss"],
-                                    "val_accuracy": metrics["accuracy"],
-                                },
-                                sort_keys=True,
-                            ),
-                            flush=True,
-                        )
+                    append_diagnostic_row(
+                        diagnostics_writer,
+                        dict(record),
+                        global_step=global_step,
+                    )
+                    if underlying.last_quantile_diagnostics is not None:
+                        quantile_writer.append(underlying.last_quantile_diagnostics)
 
                     if (
                         config.training.max_steps is not None
@@ -269,8 +311,33 @@ def run(
                         break
             if stop_training:
                 break
+            epochs_completed = epoch
+            epsilon_spent = append_validation(epoch=epoch, step=global_step)
+
+        # A short smoke can stop in the middle of an epoch. It still gets one
+        # final validation row, while a full run already has its final epoch row.
+        if global_step > 0 and last_validation_step != global_step:
+            epsilon_spent = append_validation(
+                epoch=epochs_completed + 1,
+                step=global_step,
+            )
+
+        # Quantiles are sparse, but the final logical step is always included.
+        if global_step > 0:
+            final_quantiles = underlying.last_quantile_diagnostics
+            if (
+                final_quantiles is None
+                or final_quantiles["global_step"] != global_step
+            ):
+                final_quantiles = underlying.current_quantile_diagnostics(
+                    global_step=global_step
+                )
+            quantile_writer.append(final_quantiles)
     finally:
         cleanup_private_hooks(private.hooks)
+
+    if physical_batch_counter is not None:
+        physical_batch_counter.append(physical_batch_count)
 
     summary: dict[str, Any] = {
         "algorithm": config.algorithm,
@@ -279,10 +346,14 @@ def run(
         "train_size": data.train_size,
         "eval_size": data.eval_size,
         "global_step": global_step,
+        "epochs_completed": epochs_completed,
         "validation_rows": validation_rows,
+        "epsilon_spent": epsilon_spent,
         "noise_multiplier": private.noise_multiplier,
         "expected_batch_size": private.expected_batch_size,
         "phi": private.phi,
+        "quantile_every_steps": quantile_every_steps,
+        "physical_batch_count": physical_batch_count,
     }
     (destination / "summary.json").write_text(
         json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8"
@@ -299,11 +370,8 @@ def main() -> int:
     parser.add_argument("--device", default=None, help="optional device override, e.g. cpu")
     parser.add_argument("--max-train-samples", type=int, default=None)
     parser.add_argument("--max-eval-samples", type=int, default=None)
-    parser.add_argument(
-        "--eval-steps",
-        default=None,
-        help="comma-separated logical steps; default: 410,820,1230",
-    )
+    parser.add_argument("--max-physical-batch-size", type=int, default=None)
+    parser.add_argument("--quantile-every-steps", type=int, default=20)
     args = parser.parse_args()
     config_path = args.config if args.config.is_absolute() else ROOT / args.config
     output_dir = args.output_dir
@@ -316,7 +384,8 @@ def main() -> int:
         device_name=args.device,
         max_train_samples=args.max_train_samples,
         max_eval_samples=args.max_eval_samples,
-        eval_steps=_parse_eval_steps(args.eval_steps),
+        max_physical_batch_size=args.max_physical_batch_size,
+        quantile_every_steps=args.quantile_every_steps,
     )
 
 

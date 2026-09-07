@@ -10,7 +10,7 @@
       "logical_batch_size": 256,
       "max_eval_samples": 256,
       "max_length": 128,
-      "max_physical_batch_size": 256,
+      "max_physical_batch_size": 64,
       "max_train_samples": 1024,
       "train_split": "train"
     },
@@ -65,7 +65,7 @@
   "global_step": 3,
   "noise_multiplier": 1.2548828125,
   "phi": 2.4028486222960055e-07,
-  "physical_batch_count": 5,
+  "physical_batch_count": 13,
   "quantile_every_steps": 20,
   "train_size": 1024,
   "validation_rows": 1

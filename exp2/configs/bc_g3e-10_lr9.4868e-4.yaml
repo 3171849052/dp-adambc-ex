@@ -16,7 +16,7 @@ data:
   max_eval_samples: null
 training:
   epochs: 10
-  max_steps: 1230
+  max_steps: null
   learning_rate: 9.4868329805e-4
   optimizer: dpadambc
   gamma_prime: 3.0e-10

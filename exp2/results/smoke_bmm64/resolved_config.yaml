@@ -7,7 +7,7 @@ data:
   logical_batch_size: 256
   max_eval_samples: 256
   max_length: 128
-  max_physical_batch_size: 256
+  max_physical_batch_size: 64
   max_train_samples: 1024
   train_split: train
 diagnostics:
@@ -31,7 +31,7 @@ privacy:
   poisson_sampling: true
   wrap_model: false
 run:
-  directory: /media/data/data/lt/dp-adamwbc-ex/exp2/results/smoke
+  directory: /media/data/data/lt/dp-adamwbc-ex/exp2/results/smoke_bmm64
 runtime:
   actual_device: cpu
   device: cpu
